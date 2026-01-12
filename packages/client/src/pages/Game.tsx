@@ -1,0 +1,1692 @@
+import { useEffect, useState, useRef } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useGame } from '../context/GameContext';
+import Card, { MiniCard, MediumCard, CardBack } from '../components/Card';
+import RulesContent from '../components/RulesContent';
+import { Card as CardType, cardsEqual, isWhoopieCard, isSuitCard, isJoker, Suit } from '@whoopie/shared';
+
+const suitSymbols: Record<Suit, string> = {
+  spades: '♠',
+  hearts: '♥',
+  diamonds: '♦',
+  clubs: '♣',
+};
+
+// Animation phases for trick display
+type TrickAnimationPhase = 'playing' | 'complete' | 'gathering' | 'collecting' | 'cleared';
+
+interface CompletedTrickInfo {
+  cards: Array<{ card: CardType; playerIndex: number; playerId: string }>;
+  winnerIndex: number;
+  winnerName: string;
+  trumpSuit: string | null;
+  whoopieRank: string | null;
+  whoopieDefiningCard: CardType | null;
+}
+
+// Dealer cut display state
+interface CutInfo {
+  cutCards: CardType[];
+  dealerIndex: number;
+  dealerName: string;
+}
+
+export default function Game() {
+  const { gameId } = useParams<{ gameId: string }>();
+  const navigate = useNavigate();
+  const {
+    view,
+    events,
+    addAI,
+    startGame,
+    placeBid,
+    playCard,
+    leaveGame,
+    kickPlayer,
+    replaceWithAI,
+    continueWithoutPlayer,
+    disconnectedPlayer,
+    wasKicked,
+    clearKicked,
+  } = useGame();
+  const [selectedCard, setSelectedCard] = useState<CardType | null>(null);
+  const [showWhoopiePrompt, setShowWhoopiePrompt] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [kickConfirm, setKickConfirm] = useState<{ playerId: string; playerName: string } | null>(null);
+  const [showRules, setShowRules] = useState(false);
+  const [showTrickExplanation, setShowTrickExplanation] = useState(false);
+  const [showJTrumpHelp, setShowJTrumpHelp] = useState(false);
+  const [showJokerWhoopieHelp, setShowJokerWhoopieHelp] = useState(false);
+
+  // Animation state
+  const [trickAnimPhase, setTrickAnimPhase] = useState<TrickAnimationPhase>('cleared');
+  const [completedTrick, setCompletedTrick] = useState<CompletedTrickInfo | null>(null);
+  const [cutInfo, setCutInfo] = useState<CutInfo | null>(null);
+  const [lastTrickForReview, setLastTrickForReview] = useState<CompletedTrickInfo | null>(null);
+  const [showTrickReview, setShowTrickReview] = useState(false);
+  const [showScoreboard, setShowScoreboard] = useState(false);
+  const [scoreDeltas, setScoreDeltas] = useState<number[] | null>(null);
+  const [bidAnnouncements, setBidAnnouncements] = useState<Map<number, number>>(new Map());
+  const prevPhaseRef = useRef<string | null>(null);
+  const prevTrickLengthRef = useRef<number>(0);
+  const cutShownRef = useRef<boolean>(false);
+  const prevScoresRef = useRef<number[]>([]);
+  const prevStanzaRef = useRef<number>(0);
+  const prevBidsRef = useRef<(number | null)[]>([]);
+
+  useEffect(() => {
+    if (!view && gameId && !wasKicked) {
+      // TODO: Rejoin game if we have the ID but no view
+      navigate('/');
+    }
+  }, [view, gameId, navigate, wasKicked]);
+
+  // Handle being kicked - show message and redirect
+  useEffect(() => {
+    if (wasKicked) {
+      // Small delay to let user see the kicked message
+      const timer = setTimeout(() => {
+        clearKicked();
+        navigate('/');
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [wasKicked, clearKicked, navigate]);
+
+  const handleKickPlayer = (playerId: string, playerName: string) => {
+    setKickConfirm({ playerId, playerName });
+  };
+
+  const handleConfirmKick = async (replaceWithBot: boolean) => {
+    if (!kickConfirm) return;
+    try {
+      await kickPlayer(kickConfirm.playerId);
+      if (replaceWithBot) {
+        // Small delay to let the kick complete, then replace with AI
+        setTimeout(async () => {
+          try {
+            await replaceWithAI(kickConfirm.playerId);
+          } catch (err) {
+            // Player might already be removed, that's ok
+          }
+        }, 100);
+      }
+      setKickConfirm(null);
+    } catch (err) {
+      setError((err as Error).message);
+      setKickConfirm(null);
+    }
+  };
+
+  const handleReplaceWithAI = async () => {
+    if (!disconnectedPlayer) return;
+    try {
+      await replaceWithAI(disconnectedPlayer.playerId);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleContinueWithout = async () => {
+    if (!disconnectedPlayer) return;
+    try {
+      await continueWithoutPlayer(disconnectedPlayer.playerId);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  // Debug logging
+  useEffect(() => {
+    if (view) {
+      console.log('Game state:', {
+        phase: view.phase,
+        isMyTurn: view.isMyTurn,
+        canPlay: view.validActions?.canPlay?.length,
+        myHand: view.stanza?.myHand?.length,
+        currentPlayer: view.stanza?.currentPlayerIndex,
+        myIndex: view.myIndex,
+        trickLength: view.stanza?.currentTrick?.length,
+      });
+    }
+  }, [view]);
+
+  // Track when cards are played
+  useEffect(() => {
+    if (!view?.stanza) return;
+
+    const currentTrick = view.stanza.currentTrick ?? [];
+    const currentTrickLength = currentTrick.length;
+    const prevTrickLength = prevTrickLengthRef.current;
+
+    // A new card was played - set to playing animation
+    if (currentTrickLength > prevTrickLength && currentTrickLength > 0) {
+      setTrickAnimPhase('playing');
+    }
+
+    prevTrickLengthRef.current = currentTrickLength;
+  }, [view?.stanza?.currentTrick?.length]);
+
+  // Detect trick completion and run animation sequence
+  useEffect(() => {
+    if (!view) return;
+
+    // When transitioning to trickEnd or stanzaEnd phase after playing
+    const isEndPhase = view.phase === 'trickEnd' || view.phase === 'stanzaEnd';
+    if (isEndPhase && prevPhaseRef.current === 'playing') {
+      const currentTrick = view.stanza?.currentTrick ?? [];
+
+      // Get winner from the last completed trick (authoritative source)
+      const completedTricks = view.stanza?.completedTricks ?? [];
+      const lastCompletedTrick = completedTricks[completedTricks.length - 1];
+      const winnerIndex = lastCompletedTrick?.winnerIndex;
+
+      // The server now keeps the trick populated during end phases
+      if (currentTrick.length > 0 && winnerIndex !== undefined) {
+        const winnerName = view.players[winnerIndex]?.name ?? 'Unknown';
+
+        // Save the completed trick info for animation
+        const trickInfo: CompletedTrickInfo = {
+          cards: currentTrick.map((c) => ({
+            card: c.card,
+            playerIndex: c.playerIndex,
+            playerId: c.playerId,
+          })),
+          winnerIndex,
+          winnerName,
+          trumpSuit: view.stanza?.currentTrumpSuit ?? null,
+          whoopieRank: view.stanza?.whoopieRank ?? null,
+          whoopieDefiningCard: view.stanza?.whoopieDefiningCard ?? null,
+        };
+        setCompletedTrick(trickInfo);
+        setLastTrickForReview(trickInfo); // Save for review feature
+
+        // Small delay to let last card animate in, then show complete phase
+        setTimeout(() => {
+          setTrickAnimPhase('complete');
+        }, 800); // Let the last card animate in
+
+        // Phase 2: Gather cards together (after 4 seconds to let everyone see)
+        setTimeout(() => {
+          setTrickAnimPhase('gathering');
+        }, 4800); // 800ms + 4000ms (increased display time)
+
+        // Phase 3: Collect to winner (after 1 second of gathering)
+        setTimeout(() => {
+          setTrickAnimPhase('collecting');
+        }, 5800); // 4800ms + 1000ms
+
+        // Phase 4: Clear (after 1.5 more seconds for collection animation)
+        setTimeout(() => {
+          setTrickAnimPhase('cleared');
+          setCompletedTrick(null);
+        }, 7300); // 5800ms + 1500ms
+      }
+    }
+
+    // Reset when new trick starts
+    if (view.phase === 'playing' && (prevPhaseRef.current === 'trickEnd' || prevPhaseRef.current === 'stanzaEnd' || prevPhaseRef.current === 'bidding')) {
+      setTrickAnimPhase('cleared');
+      setCompletedTrick(null);
+      prevTrickLengthRef.current = 0;
+    }
+
+    prevPhaseRef.current = view.phase;
+  }, [view?.phase, view?.stanza?.completedTricks, view?.stanza?.currentTrick, view?.players]);
+
+  // Track bids and show announcement when a new bid is placed
+  useEffect(() => {
+    if (!view?.stanza?.bids) return;
+
+    const currentBids = view.stanza.bids;
+    const prevBids = prevBidsRef.current;
+
+    // Find if there's a new bid (a null that became a number)
+    for (let i = 0; i < currentBids.length; i++) {
+      const wasBid = prevBids[i] !== null && prevBids[i] !== undefined;
+      const isBid = currentBids[i] !== null && currentBids[i] !== undefined;
+
+      if (!wasBid && isBid) {
+        // New bid detected - add to announcements
+        setBidAnnouncements(prev => {
+          const newMap = new Map(prev);
+          newMap.set(i, currentBids[i]!);
+          return newMap;
+        });
+      }
+    }
+
+    // Update the ref
+    prevBidsRef.current = [...currentBids];
+  }, [view?.stanza?.bids]);
+
+  // Clear bid announcements when first card is played, and reset bids ref when stanza changes
+  useEffect(() => {
+    // Clear when the first card is actually played (not just when phase changes)
+    const hasCardsInTrick = (view?.stanza?.currentTrick?.length ?? 0) > 0;
+    if (view?.phase === 'playing' && hasCardsInTrick && bidAnnouncements.size > 0) {
+      setBidAnnouncements(new Map());
+    }
+    if (view?.phase === 'bidding' && view?.stanza?.stanzaNumber !== prevStanzaRef.current) {
+      prevBidsRef.current = [];
+      setBidAnnouncements(new Map());
+    }
+  }, [view?.phase, view?.stanza?.stanzaNumber, view?.stanza?.currentTrick?.length]);
+
+  // Track scores at stanza start and calculate deltas at stanza end
+  useEffect(() => {
+    if (!view) return;
+
+    const currentStanza = view.stanza?.stanzaNumber ?? 0;
+
+    // At the start of a new stanza (when stanza number changes during bidding), save the scores
+    if (currentStanza !== prevStanzaRef.current && view.phase === 'bidding') {
+      prevScoresRef.current = [...view.scores];
+      prevStanzaRef.current = currentStanza;
+      setScoreDeltas(null);
+    }
+
+    // When stanza ends, calculate and show deltas
+    if (view.phase === 'stanzaEnd' && prevScoresRef.current.length > 0) {
+      const deltas = view.scores.map((score, index) => score - (prevScoresRef.current[index] ?? 0));
+      setScoreDeltas(deltas);
+    }
+
+    // Clear deltas when new stanza starts
+    if (view.phase === 'bidding' && scoreDeltas !== null) {
+      setScoreDeltas(null);
+    }
+  }, [view?.stanza?.stanzaNumber, view?.phase, view?.scores]);
+
+  // Listen for cutForDealer event to show the dealer cut (only once per game)
+  useEffect(() => {
+    if (!view || !events || cutShownRef.current) return;
+
+    // Find the cutForDealer event
+    const cutEvent = events.find(e => e.type === 'cutForDealer');
+    if (cutEvent && cutEvent.type === 'cutForDealer') {
+      cutShownRef.current = true; // Mark as shown so we don't show again
+      const dealerName = view.players[cutEvent.dealerIndex]?.name ?? 'Unknown';
+      setCutInfo({
+        cutCards: cutEvent.cutCards,
+        dealerIndex: cutEvent.dealerIndex,
+        dealerName,
+      });
+
+      // Clear after 4 seconds
+      setTimeout(() => {
+        setCutInfo(null);
+      }, 4000);
+    }
+  }, [events, view?.players]);
+
+  if (!view) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-white">Loading game...</p>
+      </div>
+    );
+  }
+
+  const handleAddAI = async (difficulty: 'beginner' | 'intermediate' | 'expert') => {
+    try {
+      await addAI(difficulty);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleStart = async () => {
+    try {
+      await startGame();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleBid = async (bid: number) => {
+    try {
+      await placeBid(bid);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleCardClick = (card: CardType) => {
+    if (!view.isMyTurn || view.phase !== 'playing') return;
+
+    // Check if this card is valid to play
+    const isValid = view.validActions.canPlay.some((c) => cardsEqual(c, card));
+    if (!isValid) return;
+
+    // Check if it's a Whoopie card (need to call Whoopie!)
+    const whoopieRank = view.stanza?.whoopieRank as any;
+    if (isWhoopieCard(card, whoopieRank) && isSuitCard(card)) {
+      setSelectedCard(card);
+      setShowWhoopiePrompt(true);
+    } else {
+      // Play the card directly
+      handlePlayCard(card, false);
+    }
+  };
+
+  const handlePlayCard = async (card: CardType, calledWhoopie: boolean) => {
+    setShowWhoopiePrompt(false);
+    setSelectedCard(null);
+    try {
+      await playCard(card, calledWhoopie);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleLeave = () => {
+    leaveGame();
+    navigate('/');
+  };
+
+  // Generate explanation for why a trick was won
+  const generateTrickExplanation = (trick: CompletedTrickInfo): string => {
+    if (!trick || trick.cards.length === 0) return '';
+
+    const winnerCard = trick.cards.find(c => c.playerIndex === trick.winnerIndex)?.card;
+    const leadCard = trick.cards[0]?.card;
+    if (!winnerCard || !leadCard) return '';
+
+    const winnerName = trick.winnerName;
+    const whoopieRank = trick.whoopieRank as any;
+    const trumpSuit = trick.trumpSuit;
+
+    // Check if winner's card is a Joker
+    if (isJoker(winnerCard)) {
+      return `${winnerName} won with a Joker. Jokers are always trump and rank as ${whoopieRank || 'the highest cards'}.`;
+    }
+
+    // Find all Whoopie cards played in this trick (including Jokers)
+    const whoopieCardsPlayed = trick.cards.filter(c =>
+      isJoker(c.card) || (isSuitCard(c.card) && isWhoopieCard(c.card, whoopieRank))
+    );
+
+    // Find all trump cards (Whoopie cards + cards in trump suit)
+    const trumpCardsPlayed = trick.cards.filter(c => {
+      if (isJoker(c.card)) return true;
+      if (isSuitCard(c.card)) {
+        if (isWhoopieCard(c.card, whoopieRank)) return true;
+        if (trumpSuit && c.card.suit === trumpSuit) return true;
+      }
+      return false;
+    });
+
+    const winnerIsWhoopie = isSuitCard(winnerCard) && isWhoopieCard(winnerCard, whoopieRank);
+    const winnerIsTrumpSuit = isSuitCard(winnerCard) && trumpSuit && winnerCard.suit === trumpSuit;
+
+    // Check if lead was a Joker (J-Trump scenario - all cards are trump)
+    if (isJoker(leadCard)) {
+      if (isSuitCard(winnerCard)) {
+        return `A Joker was led, making all cards trump for this trick. ${winnerName}'s ${winnerCard.rank} of ${winnerCard.suit} was the highest card played.`;
+      }
+    }
+
+    // Winner played a Whoopie card
+    if (winnerIsWhoopie) {
+      if (whoopieCardsPlayed.length > 1) {
+        return `${winnerName}'s ${winnerCard.rank} of ${winnerCard.suit} is a Whoopie card (all ${whoopieRank}s are Whoopie). Multiple trump cards were played, and ${winnerName} had the highest.`;
+      }
+      return `${winnerName}'s ${winnerCard.rank} of ${winnerCard.suit} is a Whoopie card (all ${whoopieRank}s are Whoopie). Whoopie cards are always trump.`;
+    }
+
+    // Winner played a card in the trump suit (not a Whoopie card itself)
+    if (winnerIsTrumpSuit && isSuitCard(winnerCard)) {
+      // Check if a Whoopie card was played that changed trump to this suit
+      const whoopieChangedTrump = whoopieCardsPlayed.some(c =>
+        isSuitCard(c.card) && c.card.suit === winnerCard.suit
+      );
+
+      if (whoopieChangedTrump) {
+        return `A Whoopie card (${whoopieRank} of ${winnerCard.suit}) was played, making ${suitSymbols[winnerCard.suit as Suit]} trump. ${winnerName}'s ${winnerCard.rank} of ${winnerCard.suit} was the highest trump.`;
+      }
+
+      if (trumpCardsPlayed.length > 1) {
+        return `${winnerName}'s ${winnerCard.rank} of ${winnerCard.suit} was the highest trump (${suitSymbols[winnerCard.suit as Suit]}).`;
+      }
+
+      if (isSuitCard(leadCard) && leadCard.suit !== trumpSuit) {
+        return `${winnerName} played trump (${suitSymbols[winnerCard.suit as Suit]}), which beats all non-trump cards.`;
+      }
+    }
+
+    // Winner won with highest card in led suit (no trump played)
+    if (isSuitCard(winnerCard) && isSuitCard(leadCard) && winnerCard.suit === leadCard.suit) {
+      if (trumpCardsPlayed.length === 0) {
+        return `No trump was played. ${winnerName}'s ${winnerCard.rank} of ${winnerCard.suit} was the highest card in the led suit.`;
+      }
+    }
+
+    return `${winnerName} won with the highest trump card.`;
+  };
+
+  // Waiting room
+  if (view.phase === 'waiting') {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-4">
+        <div className="max-w-md w-full bg-gray-800 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h1 className="text-2xl font-bold text-white">Game Lobby</h1>
+            <button
+              onClick={() => setShowRules(true)}
+              className="text-blue-400 hover:text-blue-300 text-sm transition"
+            >
+              Rules
+            </button>
+          </div>
+
+          {/* Game ID */}
+          <div className="bg-gray-700 rounded-lg p-3 mb-6">
+            <p className="text-gray-400 text-sm">Game ID</p>
+            <p className="text-white font-mono text-sm break-all">{view.id}</p>
+          </div>
+
+          {/* Players */}
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold text-white mb-3">
+              Players ({view.players.length}/10)
+            </h2>
+            <div className="space-y-2">
+              {view.players.map((player, index) => {
+                const isMe = index === view.myIndex;
+                const isHost = view.players[view.myIndex]?.id === view.hostId;
+                const canKick = isHost && !isMe && player.id !== view.hostId;
+
+                return (
+                  <div
+                    key={player.id}
+                    className="flex items-center justify-between bg-gray-700 rounded-lg p-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className={player.type === 'ai' ? 'text-purple-400' : 'text-white'}>
+                        {player.name}
+                      </span>
+                      {player.type === 'ai' && (
+                        <span className="text-xs bg-purple-600 px-2 py-0.5 rounded">AI</span>
+                      )}
+                      {isMe && (
+                        <span className="text-xs bg-green-600 px-2 py-0.5 rounded">You</span>
+                      )}
+                      {player.id === view.hostId && (
+                        <span className="text-xs bg-yellow-600 px-2 py-0.5 rounded">Host</span>
+                      )}
+                    </div>
+                    {canKick && (
+                      <button
+                        onClick={() => handleKickPlayer(player.id, player.name)}
+                        className="text-xs bg-red-600 hover:bg-red-700 px-2 py-1 rounded text-white transition"
+                      >
+                        Kick
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Add AI buttons */}
+          {view.players.length < 10 && view.players[view.myIndex]?.id === view.hostId && (
+            <div className="mb-6">
+              <p className="text-gray-400 text-sm mb-2">Add AI Player</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleAddAI('beginner')}
+                  className="flex-1 py-2 bg-green-700 hover:bg-green-600 text-white rounded-lg text-sm transition"
+                >
+                  Easy
+                </button>
+                <button
+                  onClick={() => handleAddAI('intermediate')}
+                  className="flex-1 py-2 bg-yellow-700 hover:bg-yellow-600 text-white rounded-lg text-sm transition"
+                >
+                  Medium
+                </button>
+                <button
+                  onClick={() => handleAddAI('expert')}
+                  className="flex-1 py-2 bg-red-700 hover:bg-red-600 text-white rounded-lg text-sm transition"
+                >
+                  Hard
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Start/Leave buttons */}
+          <div className="flex gap-3">
+            <button
+              onClick={handleLeave}
+              className="flex-1 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-semibold transition"
+            >
+              Leave
+            </button>
+            {view.players[view.myIndex]?.id === view.hostId && (
+              <button
+                onClick={handleStart}
+                disabled={view.players.length < 2}
+                className="flex-1 py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition"
+              >
+                Start Game
+              </button>
+            )}
+          </div>
+
+          {error && <p className="text-red-400 text-sm mt-4 text-center">{error}</p>}
+        </div>
+
+        {/* Rules Modal (in waiting room) */}
+        <AnimatePresence>
+          {showRules && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+              onClick={() => setShowRules(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.8 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0.8 }}
+                className="bg-gray-800 rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h2 className="text-2xl font-bold text-white mb-4">Whoopie Rules</h2>
+
+                <RulesContent />
+
+                <button
+                  onClick={() => setShowRules(false)}
+                  className="mt-6 w-full py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition"
+                >
+                  Got it!
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  }
+
+  // Game in progress
+  return (
+    <div className="min-h-screen felt-texture flex flex-col">
+      {/* Top bar - game info */}
+      <div className="bg-black/30 p-2 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleLeave}
+            className="text-gray-400 hover:text-white text-sm transition"
+          >
+            Leave Game
+          </button>
+          {lastTrickForReview && (
+            <button
+              onClick={() => setShowTrickReview(true)}
+              className="text-blue-400 hover:text-blue-300 text-sm transition"
+            >
+              Review Last Trick
+            </button>
+          )}
+          <button
+            onClick={() => setShowScoreboard(true)}
+            className="text-green-400 hover:text-green-300 text-sm transition"
+          >
+            Scoreboard
+          </button>
+          <button
+            onClick={() => setShowRules(true)}
+            className="text-purple-400 hover:text-purple-300 text-sm transition"
+          >
+            Rules
+          </button>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-white text-sm">
+            Stanza {view.stanza?.stanzaNumber} | {view.stanza?.cardsPerPlayer} cards
+          </div>
+          {/* Leader indicator */}
+          {(() => {
+            const maxScore = Math.max(...view.scores);
+            const leaders = view.players.filter((_, i) => view.scores[i] === maxScore);
+            if (leaders.length === 1) {
+              return (
+                <div className="text-sm">
+                  <span className="text-gray-400">Leader: </span>
+                  <span className="text-green-400 font-medium">{leaders[0]?.name} ({maxScore})</span>
+                </div>
+              );
+            } else if (leaders.length > 1 && maxScore > 0) {
+              return (
+                <div className="text-sm">
+                  <span className="text-gray-400">Tied: </span>
+                  <span className="text-yellow-400">{leaders.length} players ({maxScore})</span>
+                </div>
+              );
+            }
+            return null;
+          })()}
+        </div>
+        <div className="text-white text-sm">
+          Trump: {view.stanza?.currentTrumpSuit ? (
+            <span className={view.stanza.currentTrumpSuit === 'hearts' || view.stanza.currentTrumpSuit === 'diamonds' ? 'text-red-400' : ''}>
+              {suitSymbols[view.stanza.currentTrumpSuit as Suit]}
+            </span>
+          ) : (
+            <button
+              onClick={() => setShowJTrumpHelp(true)}
+              className="text-yellow-400 hover:text-yellow-300 underline decoration-dotted"
+            >
+              J-Trump ?
+            </button>
+          )}
+          {view.stanza?.whoopieRank && (
+            <span className="ml-2 text-yellow-300">Whoopie: {view.stanza.whoopieRank}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Main game area */}
+      <div className="flex-1 flex flex-col items-center justify-center p-4 relative">
+        {/* Arrange other players clockwise around the table */}
+        {(() => {
+          // Get other players in clockwise order starting from player to my left
+          const numPlayers = view.players.length;
+          const otherPlayers: Array<{ player: typeof view.players[0]; index: number; position: 'left' | 'top' | 'right' }> = [];
+
+          for (let i = 1; i < numPlayers; i++) {
+            const playerIndex = (view.myIndex + i) % numPlayers;
+            otherPlayers.push({ player: view.players[playerIndex]!, index: playerIndex, position: 'top' });
+          }
+
+          // Assign positions based on clockwise seating
+          // First player after me goes LEFT, last player before me goes RIGHT, rest go TOP
+          if (otherPlayers.length >= 1) {
+            otherPlayers[0]!.position = 'left'; // Player to my immediate left
+          }
+          if (otherPlayers.length >= 2) {
+            otherPlayers[otherPlayers.length - 1]!.position = 'right'; // Player to my immediate right
+          }
+          // Middle players stay at top
+
+          const leftPlayers = otherPlayers.filter(p => p.position === 'left');
+          const topPlayers = otherPlayers.filter(p => p.position === 'top');
+          const rightPlayers = otherPlayers.filter(p => p.position === 'right');
+
+          const renderPlayerBox = (playerData: typeof otherPlayers[0]) => {
+            const { player, index } = playerData;
+            const bid = view.stanza?.bids[index];
+            const tricks = view.stanza?.tricksTaken[index] ?? 0;
+            const isCurrentPlayer = view.stanza?.currentPlayerIndex === index;
+            const handCount = view.stanza?.otherHandCounts[index] ?? 0;
+            const isHost = view.players[view.myIndex]?.id === view.hostId;
+            const isHumanPlayer = player.type === 'human';
+            const isDisconnected = isHumanPlayer && !(player as any).isConnected;
+            const scoreDelta = scoreDeltas?.[index];
+
+            return (
+              <div
+                key={player.id}
+                className={`bg-black/40 rounded-lg p-3 text-center min-w-[100px] relative ${
+                  isCurrentPlayer ? 'ring-2 ring-yellow-400' : ''
+                } ${isDisconnected ? 'opacity-50' : ''}`}
+              >
+                {/* Score delta badge */}
+                {scoreDelta !== undefined && scoreDelta !== null && (
+                  <div className={`absolute -top-2 -right-2 px-2 py-0.5 rounded-full text-xs font-bold ${
+                    scoreDelta > 0 ? 'bg-green-500 text-white' : scoreDelta < 0 ? 'bg-red-500 text-white' : 'bg-gray-500 text-white'
+                  }`}>
+                    {scoreDelta > 0 ? `+${scoreDelta}` : scoreDelta}
+                  </div>
+                )}
+                <p className={`font-medium ${player.type === 'ai' ? 'text-purple-300' : 'text-white'}`}>
+                  {player.name}
+                  {isDisconnected && <span className="text-red-400 ml-1">(offline)</span>}
+                </p>
+                <p className="text-gray-400 text-xs">
+                  Score: {view.scores[index]}
+                </p>
+                {bid !== null && bid !== undefined && (
+                  <p className="text-blue-300 text-xs">
+                    Bid: {bid} | Tricks: {tricks}
+                  </p>
+                )}
+                <div className="mt-2 flex items-center justify-center gap-2">
+                  {/* Animated bid badge */}
+                  <AnimatePresence>
+                    {bidAnnouncements.has(index) && (
+                      <motion.div
+                        initial={{ scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0, opacity: 0 }}
+                        transition={{ type: 'spring', damping: 15 }}
+                        className="bg-blue-600 rounded-full w-7 h-7 flex items-center justify-center shadow-lg border border-blue-400"
+                      >
+                        <span className="text-white text-xs font-bold">{bidAnnouncements.get(index)}</span>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                  <CardBack count={handCount} />
+                </div>
+                {index === view.stanza?.dealerIndex && (
+                  <span className="inline-block mt-1 text-xs bg-yellow-600 px-2 py-0.5 rounded">
+                    Dealer
+                  </span>
+                )}
+                {isHost && (
+                  <button
+                    onClick={() => handleKickPlayer(player.id, player.name)}
+                    className="mt-1 text-xs bg-red-600/80 hover:bg-red-600 px-2 py-0.5 rounded text-white transition"
+                  >
+                    Kick
+                  </button>
+                )}
+              </div>
+            );
+          };
+
+          return (
+            <>
+              {/* Left side player(s) */}
+              {leftPlayers.length > 0 && (
+                <div className="absolute left-4 top-1/2 -translate-y-1/2 flex flex-col gap-2">
+                  {leftPlayers.map(renderPlayerBox)}
+                </div>
+              )}
+
+              {/* Top player(s) */}
+              {topPlayers.length > 0 && (
+                <div className="absolute top-4 left-1/2 -translate-x-1/2 flex gap-4">
+                  {topPlayers.map(renderPlayerBox)}
+                </div>
+              )}
+
+              {/* Right side player(s) */}
+              {rightPlayers.length > 0 && (
+                <div className="absolute right-24 top-1/2 -translate-y-1/2 flex flex-col gap-2">
+                  {rightPlayers.map(renderPlayerBox)}
+                </div>
+              )}
+            </>
+          );
+        })()}
+
+        {/* My bid announcement - shown above my hand area */}
+        <AnimatePresence>
+          {bidAnnouncements.has(view.myIndex) && (
+            <motion.div
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0, opacity: 0 }}
+              transition={{ type: 'spring', damping: 15 }}
+              className="absolute bottom-36 left-1/2 -translate-x-1/2 z-40"
+            >
+              <div className="bg-blue-600 rounded-full w-8 h-8 flex items-center justify-center shadow-lg border border-blue-400">
+                <span className="text-white text-sm font-bold">{bidAnnouncements.get(view.myIndex)}</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Current trick area */}
+        <div className="bg-black/20 rounded-xl p-8 min-w-[300px] min-h-[200px] flex flex-col items-center justify-center gap-2 relative">
+          {/* Winner announcement - shown during complete, gathering, and collecting phases */}
+          <AnimatePresence>
+            {(trickAnimPhase === 'complete' || trickAnimPhase === 'gathering' || trickAnimPhase === 'collecting') && completedTrick && (
+              <motion.div
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="absolute top-2 text-center"
+              >
+                <p className="text-xl font-bold text-yellow-400">
+                  {completedTrick.winnerName} Takes The Trick
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Cards display */}
+          <div className="flex items-center justify-center gap-3">
+            <AnimatePresence mode="sync">
+              {/* Show completed trick during complete/gathering/collecting phases */}
+              {(trickAnimPhase === 'complete' || trickAnimPhase === 'gathering' || trickAnimPhase === 'collecting') && completedTrick ? (
+                completedTrick.cards.map((played, index) => {
+                  // Calculate animation based on phase
+                  const numPlayers = view.players.length;
+                  const winnerIndex = completedTrick.winnerIndex;
+                  const isWinnerMe = winnerIndex === view.myIndex;
+                  const numCards = completedTrick.cards.length;
+                  const centerOffset = (index - (numCards - 1) / 2);
+
+                  // Determine winner's seat position (left, top, right, or me/bottom)
+                  // Players are arranged clockwise: me (bottom), left, top..., right
+                  let winnerPosition: 'me' | 'left' | 'top' | 'right' = 'me';
+                  if (!isWinnerMe) {
+                    // Calculate relative position in clockwise order
+                    const relativePos = (winnerIndex - view.myIndex + numPlayers) % numPlayers;
+                    if (relativePos === 1) {
+                      winnerPosition = 'left'; // First player after me
+                    } else if (relativePos === numPlayers - 1) {
+                      winnerPosition = 'right'; // Last player before me
+                    } else {
+                      winnerPosition = 'top'; // Everyone else is at top
+                    }
+                  }
+
+                  // Phase animations:
+                  // 'complete': cards spread out normally
+                  // 'gathering': cards come together, stack up
+                  // 'collecting': stacked cards move to winner's seat
+                  let targetX = 0;
+                  let targetY = 0;
+                  let targetScale = 1;
+                  let targetOpacity = 1;
+                  let targetRotate = 0;
+
+                  if (trickAnimPhase === 'complete') {
+                    // Cards spread out
+                    targetX = centerOffset * 60;
+                  } else if (trickAnimPhase === 'gathering') {
+                    // Cards come together and stack with slight offset
+                    targetX = index * 3;
+                    targetY = index * -2;
+                    targetRotate = (index - (numCards - 1) / 2) * 5;
+                  } else if (trickAnimPhase === 'collecting') {
+                    // Cards move as a stack to winner's seat position
+                    const stackOffset = index * 2;
+                    switch (winnerPosition) {
+                      case 'me':
+                        targetX = stackOffset;
+                        targetY = 250;
+                        break;
+                      case 'left':
+                        targetX = -350 + stackOffset;
+                        targetY = 0;
+                        break;
+                      case 'top':
+                        targetX = stackOffset;
+                        targetY = -200;
+                        break;
+                      case 'right':
+                        targetX = 300 + stackOffset;
+                        targetY = 0;
+                        break;
+                    }
+                    targetScale = 0.4;
+                    targetOpacity = 0;
+                    targetRotate = (index - (numCards - 1) / 2) * 5;
+                  }
+
+                  const isWinner = played.playerIndex === completedTrick.winnerIndex;
+
+                  return (
+                    <motion.div
+                      key={`complete-${played.playerIndex}-${index}`}
+                      initial={{ scale: 1, y: 0, x: centerOffset * 60, opacity: 1, rotate: 0 }}
+                      animate={{
+                        scale: targetScale,
+                        y: targetY,
+                        x: targetX,
+                        opacity: targetOpacity,
+                        rotate: targetRotate,
+                      }}
+                      transition={{
+                        type: 'tween',
+                        duration: trickAnimPhase === 'gathering' ? 0.8 : 1.2,
+                        ease: 'easeInOut',
+                      }}
+                      className="relative"
+                      style={{ zIndex: index }}
+                    >
+                      <div className={trickAnimPhase === 'complete' && isWinner ? 'ring-4 ring-yellow-400 rounded-lg' : ''}>
+                        <MiniCard card={played.card} highlight={isWinner} />
+                      </div>
+                      {trickAnimPhase === 'complete' && (
+                        <p className={`absolute -bottom-5 left-1/2 -translate-x-1/2 text-xs whitespace-nowrap ${isWinner ? 'text-yellow-400 font-bold' : 'text-white'}`}>
+                          {view.players[played.playerIndex]?.name}
+                        </p>
+                      )}
+                    </motion.div>
+                  );
+                })
+              ) : view.stanza?.currentTrick && view.stanza.currentTrick.length > 0 ? (
+                /* Show current trick during playing phase */
+                view.stanza.currentTrick.map((played, index) => {
+                  // Calculate start position based on player's seat
+                  const numPlayers = view.players.length;
+                  const playerIndex = played.playerIndex;
+                  const isMe = playerIndex === view.myIndex;
+
+                  let startX = 0;
+                  let startY = 0;
+                  let startRotate = 0;
+
+                  if (isMe) {
+                    startY = 200;
+                    startRotate = 10;
+                  } else {
+                    const relativePos = (playerIndex - view.myIndex + numPlayers) % numPlayers;
+                    if (relativePos === 1) {
+                      // Left player
+                      startX = -300;
+                      startY = 0;
+                      startRotate = -10;
+                    } else if (relativePos === numPlayers - 1) {
+                      // Right player
+                      startX = 300;
+                      startY = 0;
+                      startRotate = 10;
+                    } else {
+                      // Top player(s)
+                      startX = 0;
+                      startY = -180;
+                      startRotate = -10;
+                    }
+                  }
+
+                  return (
+                    <motion.div
+                      key={`playing-${played.playerIndex}-${index}`}
+                      initial={{ scale: 0.3, y: startY, x: startX, opacity: 0, rotate: startRotate }}
+                      animate={{ scale: 1, y: 0, x: 0, opacity: 1, rotate: 0 }}
+                      transition={{
+                        type: 'tween',
+                        duration: 0.6,
+                        ease: 'easeOut',
+                      }}
+                      className="relative"
+                    >
+                      <MiniCard card={played.card} />
+                      <p className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-white text-xs whitespace-nowrap">
+                        {view.players[played.playerIndex]?.name}
+                      </p>
+                    </motion.div>
+                  );
+                })
+              ) : null}
+            </AnimatePresence>
+          </div>
+
+          {/* Status message when no cards */}
+          {trickAnimPhase === 'cleared' && (!view.stanza?.currentTrick || view.stanza.currentTrick.length === 0) && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-gray-400"
+            >
+              {view.phase === 'bidding' ? 'Bidding in progress...' : view.phase === 'trickEnd' || view.phase === 'stanzaEnd' ? 'Preparing next trick...' : 'Waiting for lead...'}
+            </motion.p>
+          )}
+        </div>
+
+        {/* Whoopie defining card - positioned top-right to avoid player overlap */}
+        {view.stanza?.whoopieDefiningCard && (
+          <div className="absolute right-4 top-4 text-center">
+            <p className="text-gray-300 text-sm mb-1 font-medium">Whoopie Card</p>
+            {isJoker(view.stanza.whoopieDefiningCard) && (
+              <button
+                onClick={() => setShowJokerWhoopieHelp(true)}
+                className="text-purple-400 hover:text-purple-300 text-xs underline decoration-dotted mb-1 block"
+              >
+                All cards are Whoopie! ?
+              </button>
+            )}
+            <MediumCard card={view.stanza.whoopieDefiningCard} highlight />
+          </div>
+        )}
+      </div>
+
+      {/* Bottom - player's hand and controls */}
+      <div className="bg-black/40 p-4">
+        {/* Player info */}
+        <div className="text-center mb-3">
+          <span className="text-white font-medium">
+            {view.players[view.myIndex]?.name}
+          </span>
+          <span className="text-gray-400 mx-2">|</span>
+          <span className="text-gray-300">Score: {view.scores[view.myIndex]}</span>
+          {scoreDeltas?.[view.myIndex] !== undefined && scoreDeltas?.[view.myIndex] !== null && (
+            <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-bold ${
+              scoreDeltas[view.myIndex]! > 0 ? 'bg-green-500 text-white' : scoreDeltas[view.myIndex]! < 0 ? 'bg-red-500 text-white' : 'bg-gray-500 text-white'
+            }`}>
+              {scoreDeltas[view.myIndex]! > 0 ? `+${scoreDeltas[view.myIndex]}` : scoreDeltas[view.myIndex]}
+            </span>
+          )}
+          {view.stanza?.bids[view.myIndex] !== null && view.stanza?.bids[view.myIndex] !== undefined && (
+            <>
+              <span className="text-gray-400 mx-2">|</span>
+              <span className="text-blue-300">
+                Bid: {view.stanza.bids[view.myIndex]} | Tricks: {view.stanza?.tricksTaken[view.myIndex] ?? 0}
+              </span>
+            </>
+          )}
+          {view.myIndex === view.stanza?.dealerIndex && (
+            <span className="ml-2 text-xs bg-yellow-600 px-2 py-0.5 rounded">Dealer</span>
+          )}
+        </div>
+
+        {/* Bidding UI */}
+        {view.phase === 'bidding' && view.isMyTurn && (
+          <div className="flex flex-col items-center gap-3 mb-4">
+            <p className="text-yellow-300 font-semibold">Your bid:</p>
+            <div className="flex gap-2 flex-wrap justify-center">
+              {view.validActions.canBid.map((bid) => (
+                <button
+                  key={bid}
+                  onClick={() => handleBid(bid)}
+                  className="w-12 h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-lg transition"
+                >
+                  {bid}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Status message */}
+        {view.phase === 'bidding' && !view.isMyTurn && (
+          <p className="text-center text-gray-400 mb-4">
+            Waiting for {view.players[view.stanza?.currentPlayerIndex ?? 0]?.name} to bid...
+          </p>
+        )}
+
+        {view.phase === 'playing' && !view.isMyTurn && (
+          <p className="text-center text-gray-400 mb-4">
+            Waiting for {view.players[view.stanza?.currentPlayerIndex ?? 0]?.name} to play...
+          </p>
+        )}
+
+        {view.phase === 'playing' && view.isMyTurn && (
+          <p className="text-center text-yellow-300 font-semibold mb-4">Your turn - select a card!</p>
+        )}
+
+        {/* Player's hand */}
+        <div className="flex justify-center gap-1 sm:gap-2 flex-wrap">
+          {view.stanza?.myHand.map((card, index) => {
+            const isValid = view.validActions.canPlay.some((c) => cardsEqual(c, card));
+            return (
+              <Card
+                key={index}
+                card={card}
+                onClick={() => handleCardClick(card)}
+                disabled={!view.isMyTurn || view.phase !== 'playing' || !isValid}
+                selected={selectedCard ? cardsEqual(selectedCard, card) : false}
+              />
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Whoopie prompt modal */}
+      <AnimatePresence>
+        {showWhoopiePrompt && selectedCard && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.8 }}
+              className="bg-gray-800 rounded-xl p-6 max-w-sm w-full mx-4 text-center"
+            >
+              <h2 className="text-2xl font-bold text-yellow-400 mb-4">Whoopie!</h2>
+              <p className="text-gray-300 mb-6">
+                You're playing a Whoopie card! Don't forget to call "Whoopie!" or you'll lose a point.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setShowWhoopiePrompt(false);
+                    setSelectedCard(null);
+                  }}
+                  className="flex-1 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-semibold transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handlePlayCard(selectedCard, true)}
+                  className="flex-1 py-3 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg font-semibold transition"
+                >
+                  WHOOPIE!
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Dealer Cut Overlay */}
+      <AnimatePresence>
+        {cutInfo && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 flex flex-col items-center justify-center z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              className="bg-gray-800 rounded-xl p-6 max-w-lg text-center"
+            >
+              <h2 className="text-2xl font-bold text-white mb-4">Cut for Dealer</h2>
+              <p className="text-gray-300 mb-4">Low card deals</p>
+
+              <div className="flex gap-4 justify-center mb-6 flex-wrap">
+                {cutInfo.cutCards.map((card, index) => {
+                  const playerName = view.players[index]?.name ?? `Player ${index + 1}`;
+                  const isDealer = index === cutInfo.dealerIndex;
+
+                  return (
+                    <div key={index} className="flex flex-col items-center">
+                      <div className={`relative ${isDealer ? 'ring-4 ring-yellow-400 rounded-lg' : ''}`}>
+                        <MiniCard card={card} />
+                        {isDealer && (
+                          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-yellow-500 text-black text-xs px-2 py-0.5 rounded font-bold">
+                            LOW
+                          </div>
+                        )}
+                      </div>
+                      <p className={`mt-3 text-sm ${isDealer ? 'text-yellow-400 font-bold' : 'text-gray-400'}`}>
+                        {playerName}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <p className="text-xl text-yellow-400 font-semibold">
+                {cutInfo.dealerName} deals first!
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Review Last Trick Modal */}
+      <AnimatePresence>
+        {showTrickReview && lastTrickForReview && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"
+            onClick={() => setShowTrickReview(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.8 }}
+              className="relative w-full max-w-2xl h-96 mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Title and game state info */}
+              <div className="absolute top-0 left-1/2 -translate-x-1/2 text-center">
+                <h2 className="text-xl font-bold text-white mb-1">Last Trick</h2>
+                <p className="text-yellow-400 font-medium">
+                  {lastTrickForReview.winnerName} won the trick
+                </p>
+                <div className="mt-2 text-sm text-gray-300">
+                  <span>Trump: </span>
+                  {lastTrickForReview.trumpSuit ? (
+                    <span className={lastTrickForReview.trumpSuit === 'hearts' || lastTrickForReview.trumpSuit === 'diamonds' ? 'text-red-400' : 'text-white'}>
+                      {suitSymbols[lastTrickForReview.trumpSuit as Suit]}
+                    </span>
+                  ) : (
+                    <span className="text-yellow-400">J-Trump</span>
+                  )}
+                  {lastTrickForReview.whoopieRank && (
+                    <span className="ml-3 text-yellow-300">Whoopie: {lastTrickForReview.whoopieRank}</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Cards positioned around the virtual table */}
+              {lastTrickForReview.cards.map((played, cardIndex) => {
+                const numPlayers = view.players.length;
+                const playerIndex = played.playerIndex;
+                const isWinner = playerIndex === lastTrickForReview.winnerIndex;
+                const isMe = playerIndex === view.myIndex;
+                const playerName = view.players[playerIndex]?.name ?? 'Unknown';
+                const playOrder = cardIndex + 1; // 1-based play order
+
+                // Calculate position based on player's seat
+                let positionStyle: React.CSSProperties = {};
+                let labelPosition: 'top' | 'bottom' = 'bottom';
+
+                if (isMe) {
+                  // Bottom center
+                  positionStyle = { bottom: '20px', left: '50%', transform: 'translateX(-50%)' };
+                  labelPosition = 'bottom';
+                } else {
+                  const relativePos = (playerIndex - view.myIndex + numPlayers) % numPlayers;
+                  if (relativePos === 1) {
+                    // Left
+                    positionStyle = { left: '60px', top: '50%', transform: 'translateY(-50%)' };
+                    labelPosition = 'bottom';
+                  } else if (relativePos === numPlayers - 1) {
+                    // Right
+                    positionStyle = { right: '60px', top: '50%', transform: 'translateY(-50%)' };
+                    labelPosition = 'bottom';
+                  } else {
+                    // Top - spread multiple top players
+                    const topPlayers = [];
+                    for (let i = 2; i < numPlayers - 1; i++) {
+                      topPlayers.push((view.myIndex + i) % numPlayers);
+                    }
+                    const topIndex = topPlayers.indexOf(playerIndex);
+                    const topCount = topPlayers.length;
+                    const offset = topCount > 1 ? (topIndex - (topCount - 1) / 2) * 120 : 0;
+                    positionStyle = { top: '60px', left: `calc(50% + ${offset}px)`, transform: 'translateX(-50%)' };
+                    labelPosition = 'top';
+                  }
+                }
+
+                return (
+                  <div
+                    key={cardIndex}
+                    className="absolute flex flex-col items-center"
+                    style={positionStyle}
+                  >
+                    {labelPosition === 'top' && (
+                      <p className={`text-sm mb-1 ${isWinner ? 'text-yellow-400 font-bold' : 'text-gray-300'}`}>
+                        {playerName}
+                      </p>
+                    )}
+                    <div className="relative">
+                      {/* Play order badge */}
+                      <div className={`absolute -top-2 -left-2 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold z-10 ${
+                        playOrder === 1 ? 'bg-green-500 text-white' : 'bg-gray-600 text-white'
+                      }`}>
+                        {playOrder}
+                      </div>
+                      <div className={`${isWinner ? 'ring-4 ring-yellow-400 rounded-lg' : ''}`}>
+                        <MiniCard card={played.card} highlight={isWinner} />
+                      </div>
+                    </div>
+                    {isWinner && (
+                      <span className="mt-1 text-xs bg-yellow-500 text-black px-2 py-0.5 rounded font-bold">
+                        WINNER
+                      </span>
+                    )}
+                    {labelPosition === 'bottom' && !isWinner && (
+                      <p className="text-sm mt-1 text-gray-300">
+                        {playerName}
+                      </p>
+                    )}
+                    {labelPosition === 'bottom' && isWinner && (
+                      <p className="text-sm text-yellow-400 font-bold">
+                        {playerName}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Why explanation */}
+              {showTrickExplanation && (
+                <div className="absolute bottom-16 left-1/2 -translate-x-1/2 bg-gray-800 border border-gray-600 rounded-lg p-3 max-w-sm text-center">
+                  <p className="text-gray-300 text-sm">{generateTrickExplanation(lastTrickForReview)}</p>
+                </div>
+              )}
+
+              {/* Buttons */}
+              <div className="absolute bottom-4 right-4 flex gap-2">
+                <button
+                  onClick={() => setShowTrickExplanation(!showTrickExplanation)}
+                  className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition text-sm"
+                >
+                  {showTrickExplanation ? 'Hide Why' : 'Why?'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowTrickReview(false);
+                    setShowTrickExplanation(false);
+                  }}
+                  className="px-6 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Scoreboard Modal */}
+      <AnimatePresence>
+        {showScoreboard && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 flex items-center justify-center z-50"
+            onClick={() => setShowScoreboard(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.8 }}
+              className="bg-gray-800 rounded-xl p-6 max-w-md w-full mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 className="text-xl font-bold text-white mb-4 text-center">Scoreboard</h2>
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-600">
+                    <th className="text-left text-gray-400 py-2 px-2">Player</th>
+                    <th className="text-center text-gray-400 py-2 px-2">Score</th>
+                    {view.stanza && (
+                      <>
+                        <th className="text-center text-gray-400 py-2 px-2">Bid</th>
+                        <th className="text-center text-gray-400 py-2 px-2">Tricks</th>
+                      </>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {view.players.map((player, index) => {
+                    const isMe = index === view.myIndex;
+                    const isLeader = view.scores[index] === Math.max(...view.scores) && view.scores[index] > 0;
+                    const bid = view.stanza?.bids[index];
+                    const tricks = view.stanza?.tricksTaken[index] ?? 0;
+                    const delta = scoreDeltas?.[index];
+
+                    return (
+                      <tr key={player.id} className={`border-b border-gray-700 ${isMe ? 'bg-green-900/30' : ''}`}>
+                        <td className="py-2 px-2">
+                          <span className={`${player.type === 'ai' ? 'text-purple-300' : 'text-white'} ${isLeader ? 'font-bold' : ''}`}>
+                            {player.name}
+                          </span>
+                          {isMe && <span className="text-xs text-green-400 ml-1">(you)</span>}
+                          {isLeader && <span className="text-xs text-yellow-400 ml-1">*</span>}
+                        </td>
+                        <td className="text-center py-2 px-2">
+                          <span className="text-white font-medium">{view.scores[index]}</span>
+                          {delta !== undefined && delta !== null && (
+                            <span className={`ml-1 text-xs ${delta > 0 ? 'text-green-400' : delta < 0 ? 'text-red-400' : 'text-gray-400'}`}>
+                              ({delta > 0 ? `+${delta}` : delta})
+                            </span>
+                          )}
+                        </td>
+                        {view.stanza && (
+                          <>
+                            <td className="text-center text-blue-300 py-2 px-2">
+                              {bid !== null && bid !== undefined ? bid : '-'}
+                            </td>
+                            <td className="text-center text-gray-300 py-2 px-2">
+                              {tricks}
+                            </td>
+                          </>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div className="mt-4 text-center">
+                <button
+                  onClick={() => setShowScoreboard(false)}
+                  className="px-6 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Kick Confirmation Modal */}
+      <AnimatePresence>
+        {kickConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.8 }}
+              className="bg-gray-800 rounded-xl p-6 max-w-sm w-full mx-4 text-center"
+            >
+              <h2 className="text-xl font-bold text-white mb-2">Remove Player</h2>
+              <p className="text-gray-300 mb-6">
+                Remove <span className="text-yellow-400 font-medium">{kickConfirm.playerName}</span> from the game?
+              </p>
+              <div className="flex flex-col gap-3">
+                {view.phase !== 'waiting' && (
+                  <button
+                    onClick={() => handleConfirmKick(true)}
+                    className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold transition"
+                  >
+                    Remove & Replace with Bot
+                  </button>
+                )}
+                <button
+                  onClick={() => handleConfirmKick(false)}
+                  className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold transition"
+                >
+                  {view.phase === 'waiting' ? 'Remove Player' : 'Remove & Leave Seat Empty'}
+                </button>
+                <button
+                  onClick={() => setKickConfirm(null)}
+                  className="w-full py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-semibold transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Disconnected Player Modal (for host) */}
+      <AnimatePresence>
+        {disconnectedPlayer && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.8 }}
+              className="bg-gray-800 rounded-xl p-6 max-w-sm w-full mx-4 text-center"
+            >
+              <h2 className="text-xl font-bold text-white mb-2">Player Disconnected</h2>
+              <p className="text-gray-300 mb-6">
+                <span className="text-yellow-400 font-medium">{disconnectedPlayer.playerName}</span> has left the game. What would you like to do?
+              </p>
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handleReplaceWithAI}
+                  className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold transition"
+                >
+                  Replace with {disconnectedPlayer.playerName}-bot
+                </button>
+                <button
+                  onClick={handleContinueWithout}
+                  className="w-full py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-semibold transition"
+                >
+                  Continue without them
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Kicked Notification */}
+      <AnimatePresence>
+        {wasKicked && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+          >
+            <motion.div
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.8 }}
+              className="bg-gray-800 rounded-xl p-6 max-w-sm w-full mx-4 text-center"
+            >
+              <h2 className="text-xl font-bold text-red-400 mb-2">Removed from Game</h2>
+              <p className="text-gray-300 mb-4">
+                You have been removed from the game by the host.
+              </p>
+              <p className="text-gray-500 text-sm">Returning to home...</p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* J-Trump Help Modal */}
+      <AnimatePresence>
+        {showJTrumpHelp && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+            onClick={() => setShowJTrumpHelp(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.8 }}
+              className="bg-gray-800 rounded-xl p-6 max-w-md w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 className="text-xl font-bold text-yellow-400 mb-3">What is J-Trump?</h2>
+              <div className="text-gray-300 text-sm space-y-3">
+                <p>
+                  <span className="text-white font-medium">J-Trump</span> means no trump suit has been set yet this stanza.
+                </p>
+                <p>
+                  Trump gets set when the <span className="text-yellow-300">first Whoopie card</span> is played - whatever suit that card is becomes trump for the rest of the stanza.
+                </p>
+                <p>
+                  While J-Trump is active, <span className="text-purple-400">Jokers are the only trump cards</span>. If a Joker is led, all cards become trump for that trick and the highest card wins.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowJTrumpHelp(false)}
+                className="mt-4 w-full py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition"
+              >
+                Got it!
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Joker Whoopie Help Modal */}
+      <AnimatePresence>
+        {showJokerWhoopieHelp && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+            onClick={() => setShowJokerWhoopieHelp(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.8 }}
+              className="bg-gray-800 rounded-xl p-6 max-w-md w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 className="text-xl font-bold text-purple-400 mb-3">Joker as Whoopie Card!</h2>
+              <div className="text-gray-300 text-sm space-y-3">
+                <p>
+                  When a <span className="text-purple-400 font-medium">Joker</span> is flipped as the Whoopie defining card, something special happens:
+                </p>
+                <p className="text-yellow-300 font-medium">
+                  ALL cards become Whoopie cards this stanza!
+                </p>
+                <p>
+                  This means you must call <span className="text-yellow-400">"Whoopie!"</span> every time you play a card, or lose a point.
+                </p>
+                <p>
+                  Trump will be set by the <span className="text-white">first suited card played</span> - that card's suit becomes trump.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowJokerWhoopieHelp(false)}
+                className="mt-4 w-full py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition"
+              >
+                Got it!
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Rules Modal */}
+      <AnimatePresence>
+        {showRules && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+            onClick={() => setShowRules(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.8 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.8 }}
+              className="bg-gray-800 rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 className="text-2xl font-bold text-white mb-4">Whoopie Rules</h2>
+
+              <RulesContent />
+
+              <button
+                onClick={() => setShowRules(false)}
+                className="mt-6 w-full py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition"
+              >
+                Got it!
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Error toast */}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-red-600 text-white px-4 py-2 rounded-lg"
+            onClick={() => setError(null)}
+          >
+            {error}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
