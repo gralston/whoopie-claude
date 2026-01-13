@@ -299,7 +299,7 @@ export class GameManager {
     return {
       gameId,
       event: { type: 'playerLeft', playerId, playerName: leavingPlayerName },
-      needsHostDecision: session.game.phase !== 'waiting',
+      needsHostDecision: true, // Always true here since 'waiting' phase returns early above
       leavingPlayerId: playerId,
       leavingPlayerName
     };
