@@ -173,7 +173,7 @@ export interface CompletedStanzaRecord {
 
 export type GameEvent =
   | { type: 'playerJoined'; player: Player }
-  | { type: 'playerLeft'; playerId: string; replacement?: Player }
+  | { type: 'playerLeft'; playerId: string; playerName?: string; replacement?: Player }
   | { type: 'gameStarted' }
   | { type: 'cutForDealer'; cutCards: Card[]; dealerIndex: number }
   | { type: 'stanzaStarted'; stanza: StanzaState }
@@ -183,6 +183,7 @@ export type GameEvent =
   | { type: 'stanzaCompleted'; scoreChanges: number[]; newScores: number[] }
   | { type: 'gameEnded'; finalScores: number[]; rankings: number[] }
   | { type: 'whoopieCallMissed'; playerIndex: number } // Penalty for not calling Whoopie
+  | { type: 'stanzaRedealt'; reason: string } // Stanza was redealt (e.g., player removed)
   | { type: 'error'; message: string };
 
 // ============================================================================

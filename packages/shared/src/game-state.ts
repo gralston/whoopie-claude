@@ -183,6 +183,93 @@ export function removePlayer(
   };
 }
 
+/**
+ * Remove a player from an in-progress game and redeal the current stanza
+ * Used when a player is kicked or leaves and we don't want to replace them
+ */
+export function removePlayerAndRedeal(
+  game: GameState,
+  playerId: string
+): { game: GameState; events: GameEvent[] } {
+  const playerIndex = game.players.findIndex((p) => p.id === playerId);
+  if (playerIndex === -1) {
+    throw new Error('Player not in game');
+  }
+
+  const playerName = game.players[playerIndex]!.name;
+
+  if (game.phase === 'waiting') {
+    // Just remove the player normally
+    const { game: newGame } = removePlayer(game, playerId);
+    return { game: newGame, events: [{ type: 'playerLeft', playerId, playerName }] };
+  }
+
+  if (!game.stanza) {
+    throw new Error('No active stanza');
+  }
+
+  // Check if we'd have too few players
+  if (game.players.length <= 2) {
+    throw new Error('Cannot remove player: would have fewer than 2 players');
+  }
+
+  // Remove the player and their score
+  const newPlayers = game.players.filter((p) => p.id !== playerId);
+  const newScores = game.scores.filter((_, i) => i !== playerIndex);
+
+  // Adjust dealer and scorekeeper indices
+  let newDealerIndex = game.stanza.dealerIndex;
+  let newScorekeeperIndex = game.scorekeeperIndex;
+
+  if (playerIndex < newDealerIndex) {
+    newDealerIndex--;
+  } else if (playerIndex === newDealerIndex) {
+    // Dealer was removed, next player becomes dealer
+    newDealerIndex = newDealerIndex % newPlayers.length;
+  }
+  if (newDealerIndex >= newPlayers.length) {
+    newDealerIndex = 0;
+  }
+
+  if (newScorekeeperIndex !== null) {
+    if (playerIndex < newScorekeeperIndex) {
+      newScorekeeperIndex--;
+    } else if (playerIndex === newScorekeeperIndex) {
+      newScorekeeperIndex = (newDealerIndex + 1) % newPlayers.length;
+    }
+    if (newScorekeeperIndex >= newPlayers.length) {
+      newScorekeeperIndex = 0;
+    }
+  }
+
+  const events: GameEvent[] = [
+    { type: 'playerLeft', playerId, playerName },
+    { type: 'stanzaRedealt', reason: 'Player removed from game' },
+  ];
+
+  // Create base game state without stanza
+  const baseGame: GameState = {
+    ...game,
+    players: newPlayers,
+    scores: newScores,
+    scorekeeperIndex: newScorekeeperIndex,
+    stanza: null,
+  };
+
+  // Redeal the stanza with the same parameters
+  const { game: redealedGame, events: stanzaEvents } = startStanza(
+    baseGame,
+    newDealerIndex,
+    game.stanza.cardsPerPlayer,
+    game.stanza.direction
+  );
+
+  return {
+    game: redealedGame,
+    events: [...events, ...stanzaEvents],
+  };
+}
+
 // ============================================================================
 // Game Start
 // ============================================================================
@@ -478,12 +565,6 @@ export function playCard(
     isLead
   );
 
-  console.log(`[playCard] Player ${playerIndex} plays:`,
-    isJoker(card) ? 'JOKER' : `${(card as any).rank} of ${(card as any).suit}`,
-    `| trumpBefore: ${newTrumpSuit}`,
-    `| wasWhoopie: ${trumpChange.wasWhoopie}`,
-    `| trumpAfter: ${trumpChange.newTrumpSuit}`);
-
   // Check if player should have called Whoopie
   const shouldCallWhoopie = !isJoker(card) && isWhoopieCard(card, newWhoopieRank);
   const missedWhoopieCall = shouldCallWhoopie && !calledWhoopie;
@@ -546,10 +627,6 @@ export function playCard(
     game: {
       ...game,
       stanza: newStanza,
-      // Apply Whoopie penalty if missed
-      scores: missedWhoopieCall
-        ? game.scores.map((s, i) => (i === playerIndex ? s - 1 : s))
-        : game.scores,
     },
     events,
   };
@@ -583,11 +660,7 @@ function completeTrick(
   // Add to completed tricks
   const newCompletedTricks = [...game.stanza.completedTricks, completedTrick];
 
-  // Apply scores (Whoopie penalty if applicable)
-  let newScores = [...game.scores];
-  if (missedWhoopiePlayerIndex !== null) {
-    newScores[missedWhoopiePlayerIndex]! -= 1;
-  }
+  const newScores = [...game.scores];
 
   // Check if stanza is complete
   if (game.stanza.currentTrickNumber >= game.stanza.cardsPerPlayer) {

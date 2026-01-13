@@ -11,6 +11,7 @@ import {
   createGame,
   addPlayer,
   removePlayer,
+  removePlayerAndRedeal,
   startGame,
   placeBid,
   playCard,
@@ -297,7 +298,7 @@ export class GameManager {
 
     return {
       gameId,
-      event: { type: 'playerLeft', playerId },
+      event: { type: 'playerLeft', playerId, playerName: leavingPlayerName },
       needsHostDecision: session.game.phase !== 'waiting',
       leavingPlayerId: playerId,
       leavingPlayerName
@@ -363,7 +364,7 @@ export class GameManager {
 
     return {
       session,
-      event: { type: 'playerLeft', playerId: targetPlayerId },
+      event: { type: 'playerLeft', playerId: targetPlayerId, playerName: kickedPlayerName },
       kickedPlayerName,
       targetSocketId
     };
@@ -417,15 +418,17 @@ export class GameManager {
     const event: GameEvent = {
       type: 'playerLeft',
       playerId: targetPlayerId,
+      playerName: oldPlayer.name,
       replacement: aiPlayer
     };
 
     return { session, event, newAIPlayer: aiPlayer };
   }
 
-  // Continue game without replacing (just leave the spot empty / skip their turns)
+  // Continue game without replacing - remove the player and redeal the current stanza
   continueWithoutPlayer(gameId: string, hostSocketId: string, targetPlayerId: string): {
     session: GameSession;
+    events: GameEvent[];
   } {
     const session = this.games.get(gameId);
     if (!session) {
@@ -437,9 +440,11 @@ export class GameManager {
       throw new Error('Only host can make this decision');
     }
 
-    // Player is already marked as disconnected, nothing more to do
-    // The game will need to handle skipping disconnected players
-    return { session };
+    // Remove the player and redeal the current stanza
+    const { game: newGame, events } = removePlayerAndRedeal(session.game, targetPlayerId);
+    session.game = newGame;
+
+    return { session, events };
   }
 
   // Get list of disconnected players awaiting host decision
@@ -483,10 +488,6 @@ export class GameManager {
     const view = getPlayerView(session.game, playerIndex);
     const validActions = getValidActions(session.game);
     const isMyTurn = isPlayersTurn(session.game, playerIndex);
-
-    console.log('getPlayerView for player', playerIndex, '- phase:', session.game.phase,
-      'isMyTurn:', isMyTurn, 'canPlay:', validActions.canPlay.length,
-      'myHand:', view.stanza?.myHand?.length ?? 0);
 
     return {
       ...view,

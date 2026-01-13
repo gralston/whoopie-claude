@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '../context/GameContext';
 import Card, { MiniCard, MediumCard, CardBack } from '../components/Card';
 import RulesContent from '../components/RulesContent';
-import { Card as CardType, cardsEqual, isWhoopieCard, isSuitCard, isJoker, Suit } from '@whoopie/shared';
+import { Card as CardType, cardsEqual, isWhoopieCard, isSuitCard, isJoker, Suit, RANK_VALUES } from '@whoopie/shared';
 
 const suitSymbols: Record<Suit, string> = {
   spades: '♠',
@@ -12,6 +12,24 @@ const suitSymbols: Record<Suit, string> = {
   diamonds: '♦',
   clubs: '♣',
 };
+
+// Sort hand by suit (clubs, diamonds, hearts, spades) then by rank ascending (2, 3, ... A)
+function sortHandForDisplay(cards: CardType[]): CardType[] {
+  const suitOrder = ['clubs', 'diamonds', 'hearts', 'spades'] as const;
+  return [...cards].sort((a, b) => {
+    // Jokers go at the end
+    if (isJoker(a) && isJoker(b)) return 0;
+    if (isJoker(a)) return 1;
+    if (isJoker(b)) return -1;
+
+    // Sort by suit first
+    const suitDiff = suitOrder.indexOf(a.suit) - suitOrder.indexOf(b.suit);
+    if (suitDiff !== 0) return suitDiff;
+
+    // Then by rank ascending (low to high)
+    return RANK_VALUES[a.rank] - RANK_VALUES[b.rank];
+  });
+}
 
 // Animation phases for trick display
 type TrickAnimationPhase = 'playing' | 'complete' | 'gathering' | 'collecting' | 'cleared';
@@ -74,6 +92,8 @@ export default function Game() {
   const prevScoresRef = useRef<number[]>([]);
   const prevStanzaRef = useRef<number>(0);
   const prevBidsRef = useRef<(number | null)[]>([]);
+  const [notification, setNotification] = useState<string | null>(null);
+  const processedEventsRef = useRef<number>(0);
 
   useEffect(() => {
     if (!view && gameId && !wasKicked) {
@@ -136,21 +156,6 @@ export default function Game() {
       setError((err as Error).message);
     }
   };
-
-  // Debug logging
-  useEffect(() => {
-    if (view) {
-      console.log('Game state:', {
-        phase: view.phase,
-        isMyTurn: view.isMyTurn,
-        canPlay: view.validActions?.canPlay?.length,
-        myHand: view.stanza?.myHand?.length,
-        currentPlayer: view.stanza?.currentPlayerIndex,
-        myIndex: view.myIndex,
-        trickLength: view.stanza?.currentTrick?.length,
-      });
-    }
-  }, [view]);
 
   // Track when cards are played
   useEffect(() => {
@@ -320,6 +325,31 @@ export default function Game() {
       }, 4000);
     }
   }, [events, view?.players]);
+
+  // Handle player left notifications
+  useEffect(() => {
+    if (!events || events.length === 0) return;
+
+    // Only process new events
+    const newEvents = events.slice(processedEventsRef.current);
+    processedEventsRef.current = events.length;
+
+    for (const event of newEvents) {
+      if (event.type === 'playerLeft') {
+        const leavingPlayerName = event.playerName ?? 'A player';
+        let message: string;
+
+        if (event.replacement) {
+          message = `${leavingPlayerName} has left the game and been replaced by ${event.replacement.name} - who will take over their position and score.`;
+        } else {
+          message = `${leavingPlayerName} has left the game. The stanza will be redealt.`;
+        }
+
+        setNotification(message);
+        setTimeout(() => setNotification(null), 5000);
+      }
+    }
+  }, [events]);
 
   if (!view) {
     return (
@@ -618,8 +648,22 @@ export default function Game() {
   // Game in progress
   return (
     <div className="min-h-screen felt-texture flex flex-col">
+      {/* Notification banner */}
+      <AnimatePresence>
+        {notification && (
+          <motion.div
+            initial={{ opacity: 0, y: -50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -50 }}
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-blue-600 text-white px-6 py-3 rounded-lg shadow-lg text-center max-w-md"
+          >
+            {notification}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Top bar - game info */}
-      <div className="bg-black/30 p-2 flex items-center justify-between">
+      <div className="bg-black/30 p-2 flex items-center justify-between relative z-20">
         <div className="flex items-center gap-3">
           <button
             onClick={handleLeave}
@@ -699,26 +743,88 @@ export default function Game() {
         {(() => {
           // Get other players in clockwise order starting from player to my left
           const numPlayers = view.players.length;
-          const otherPlayers: Array<{ player: typeof view.players[0]; index: number; position: 'left' | 'top' | 'right' }> = [];
+          const otherPlayers: Array<{
+            player: typeof view.players[0];
+            index: number;
+            style: React.CSSProperties;
+          }> = [];
 
-          for (let i = 1; i < numPlayers; i++) {
-            const playerIndex = (view.myIndex + i) % numPlayers;
-            otherPlayers.push({ player: view.players[playerIndex]!, index: playerIndex, position: 'top' });
-          }
+          // Calculate positions around the table
+          // Me is at bottom (6 o'clock). Other players distributed from left (9 o'clock)
+          // through top (12 o'clock) to right (3 o'clock)
+          const numOthers = numPlayers - 1;
 
-          // Assign positions based on clockwise seating
-          // First player after me goes LEFT, last player before me goes RIGHT, rest go TOP
-          if (otherPlayers.length >= 1) {
-            otherPlayers[0]!.position = 'left'; // Player to my immediate left
-          }
-          if (otherPlayers.length >= 2) {
-            otherPlayers[otherPlayers.length - 1]!.position = 'right'; // Player to my immediate right
-          }
-          // Middle players stay at top
+          // Slot-based positioning that ensures good spacing for any player count
+          // Uses predefined positions that look good, then interpolates for other counts
 
-          const leftPlayers = otherPlayers.filter(p => p.position === 'left');
-          const topPlayers = otherPlayers.filter(p => p.position === 'top');
-          const rightPlayers = otherPlayers.filter(p => p.position === 'right');
+          const centerY = 50; // Center point for positioning
+
+          // Define optimal positions for different player counts
+          // Each position is [x%, y%] where (50, 50) is center
+          const getPositions = (count: number): Array<[number, number]> => {
+            switch (count) {
+              case 1:
+                return [[50, 18]]; // Top center
+              case 2:
+                return [[20, 35], [80, 35]]; // Left and right, fairly high
+              case 3:
+                return [[15, 45], [50, 18], [85, 45]]; // Triangle: left, top, right
+              case 4:
+                return [[12, 50], [35, 18], [65, 18], [88, 50]]; // Two on sides, two on top
+              case 5:
+                return [[10, 55], [25, 25], [50, 15], [75, 25], [90, 55]];
+              case 6:
+                return [[8, 58], [20, 30], [42, 15], [58, 15], [80, 30], [92, 58]];
+              case 7:
+                return [[6, 60], [16, 35], [35, 17], [50, 13], [65, 17], [84, 35], [94, 60]];
+              case 8:
+                return [[5, 62], [14, 40], [30, 20], [46, 13], [54, 13], [70, 20], [86, 40], [95, 62]];
+              case 9:
+                return [[4, 65], [12, 45], [24, 25], [40, 15], [50, 12], [60, 15], [76, 25], [88, 45], [96, 65]];
+              default:
+                // For 10+ players, generate positions algorithmically
+                const positions: Array<[number, number]> = [];
+                // Distribute in three rows: bottom-sides, middle-sides, and top
+                const leftCount = Math.ceil(count / 3);
+                const topCount = Math.ceil(count / 3);
+                const rightCount = count - leftCount - topCount;
+
+                // Left side (bottom to top)
+                for (let j = 0; j < leftCount; j++) {
+                  const t = leftCount === 1 ? 0.5 : j / (leftCount - 1);
+                  positions.push([6 + t * 8, 65 - t * 45]);
+                }
+                // Top (left to right)
+                for (let j = 0; j < topCount; j++) {
+                  const t = topCount === 1 ? 0.5 : j / (topCount - 1);
+                  positions.push([20 + t * 60, 12 + Math.sin(t * Math.PI) * 6]);
+                }
+                // Right side (top to bottom)
+                for (let j = 0; j < rightCount; j++) {
+                  const t = rightCount === 1 ? 0.5 : j / (rightCount - 1);
+                  positions.push([94 - t * 8, 20 + t * 45]);
+                }
+                return positions;
+            }
+          };
+
+          const positions = getPositions(numOthers);
+
+          for (let i = 0; i < numOthers; i++) {
+            const playerIndex = (view.myIndex + i + 1) % numPlayers;
+            const [x, y] = positions[i] || [50, 50];
+
+            otherPlayers.push({
+              player: view.players[playerIndex]!,
+              index: playerIndex,
+              style: {
+                position: 'absolute' as const,
+                left: `${x}%`,
+                top: `${y}%`,
+                transform: 'translate(-50%, -50%)',
+              }
+            });
+          }
 
           const renderPlayerBox = (playerData: typeof otherPlayers[0]) => {
             const { player, index } = playerData;
@@ -754,7 +860,7 @@ export default function Game() {
                   Score: {view.scores[index]}
                 </p>
                 {bid !== null && bid !== undefined && (
-                  <p className="text-blue-300 text-xs">
+                  <p className="text-blue-300 text-xs whitespace-nowrap">
                     Bid: {bid} | Tricks: {tricks}
                   </p>
                 )}
@@ -794,26 +900,11 @@ export default function Game() {
 
           return (
             <>
-              {/* Left side player(s) */}
-              {leftPlayers.length > 0 && (
-                <div className="absolute left-4 top-1/2 -translate-y-1/2 flex flex-col gap-2">
-                  {leftPlayers.map(renderPlayerBox)}
+              {otherPlayers.map((playerData) => (
+                <div key={playerData.player.id} style={playerData.style}>
+                  {renderPlayerBox(playerData)}
                 </div>
-              )}
-
-              {/* Top player(s) */}
-              {topPlayers.length > 0 && (
-                <div className="absolute top-4 left-1/2 -translate-x-1/2 flex gap-4">
-                  {topPlayers.map(renderPlayerBox)}
-                </div>
-              )}
-
-              {/* Right side player(s) */}
-              {rightPlayers.length > 0 && (
-                <div className="absolute right-24 top-1/2 -translate-y-1/2 flex flex-col gap-2">
-                  {rightPlayers.map(renderPlayerBox)}
-                </div>
-              )}
+              ))}
             </>
           );
         })()}
@@ -866,20 +957,10 @@ export default function Game() {
                   const numCards = completedTrick.cards.length;
                   const centerOffset = (index - (numCards - 1) / 2);
 
-                  // Determine winner's seat position (left, top, right, or me/bottom)
-                  // Players are arranged clockwise: me (bottom), left, top..., right
-                  let winnerPosition: 'me' | 'left' | 'top' | 'right' = 'me';
-                  if (!isWinnerMe) {
-                    // Calculate relative position in clockwise order
-                    const relativePos = (winnerIndex - view.myIndex + numPlayers) % numPlayers;
-                    if (relativePos === 1) {
-                      winnerPosition = 'left'; // First player after me
-                    } else if (relativePos === numPlayers - 1) {
-                      winnerPosition = 'right'; // Last player before me
-                    } else {
-                      winnerPosition = 'top'; // Everyone else is at top
-                    }
-                  }
+                  // Calculate winner's seat position using elliptical layout
+                  // Same algorithm as player positioning
+                  const numOthers = numPlayers - 1;
+                  const relativePos = (winnerIndex - view.myIndex + numPlayers) % numPlayers;
 
                   // Phase animations:
                   // 'complete': cards spread out normally
@@ -902,23 +983,42 @@ export default function Game() {
                   } else if (trickAnimPhase === 'collecting') {
                     // Cards move as a stack to winner's seat position
                     const stackOffset = index * 2;
-                    switch (winnerPosition) {
-                      case 'me':
-                        targetX = stackOffset;
-                        targetY = 250;
-                        break;
-                      case 'left':
-                        targetX = -350 + stackOffset;
-                        targetY = 0;
-                        break;
-                      case 'top':
-                        targetX = stackOffset;
-                        targetY = -200;
-                        break;
-                      case 'right':
-                        targetX = 300 + stackOffset;
-                        targetY = 0;
-                        break;
+
+                    if (isWinnerMe) {
+                      // Winner is me - cards go to bottom
+                      targetX = stackOffset;
+                      targetY = 250;
+                    } else {
+                      // Use same slot-based positioning as seat layout
+                      const playerOrdinal = relativePos - 1;
+
+                      // Simplified position lookup (approximate pixel offsets from center)
+                      // These roughly match the percentage positions in getPositions()
+                      const getWinnerOffset = (count: number, idx: number): [number, number] => {
+                        // Convert percentage to rough pixel offset (assuming ~800px wide, ~500px tall play area)
+                        const pctToX = (pct: number) => (pct - 50) * 7;
+                        const pctToY = (pct: number) => (pct - 50) * 5;
+
+                        const positionSets: { [key: number]: Array<[number, number]> } = {
+                          1: [[50, 18]],
+                          2: [[20, 35], [80, 35]],
+                          3: [[15, 45], [50, 18], [85, 45]],
+                          4: [[12, 50], [35, 18], [65, 18], [88, 50]],
+                          5: [[10, 55], [25, 25], [50, 15], [75, 25], [90, 55]],
+                          6: [[8, 58], [20, 30], [42, 15], [58, 15], [80, 30], [92, 58]],
+                          7: [[6, 60], [16, 35], [35, 17], [50, 13], [65, 17], [84, 35], [94, 60]],
+                          8: [[5, 62], [14, 40], [30, 20], [46, 13], [54, 13], [70, 20], [86, 40], [95, 62]],
+                          9: [[4, 65], [12, 45], [24, 25], [40, 15], [50, 12], [60, 15], [76, 25], [88, 45], [96, 65]],
+                        };
+
+                        const positions = positionSets[count] ?? positionSets[9]!;
+                        const [px, py] = positions[Math.min(idx, positions.length - 1)] ?? [50, 30];
+                        return [pctToX(px), pctToY(py)];
+                      };
+
+                      const [offX, offY] = getWinnerOffset(numOthers, playerOrdinal);
+                      targetX = offX + stackOffset;
+                      targetY = offY;
                     }
                     targetScale = 0.4;
                     targetOpacity = 0;
@@ -1110,7 +1210,7 @@ export default function Game() {
 
         {/* Player's hand */}
         <div className="flex justify-center gap-1 sm:gap-2 flex-wrap">
-          {view.stanza?.myHand.map((card, index) => {
+          {sortHandForDisplay(view.stanza?.myHand ?? []).map((card, index) => {
             const isValid = view.validActions.canPlay.some((c) => cardsEqual(c, card));
             return (
               <Card
@@ -1229,16 +1329,20 @@ export default function Game() {
               initial={{ scale: 0.8 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0.8 }}
-              className="relative w-full max-w-2xl h-96 mx-4"
+              className="relative w-full max-w-2xl h-[450px] mx-4 bg-gray-900 rounded-xl p-4"
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Title and game state info */}
-              <div className="absolute top-0 left-1/2 -translate-x-1/2 text-center">
+              {/* Title and winner info - centered */}
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 text-center">
                 <h2 className="text-xl font-bold text-white mb-1">Last Trick</h2>
                 <p className="text-yellow-400 font-medium">
                   {lastTrickForReview.winnerName} won the trick
                 </p>
-                <div className="mt-2 text-sm text-gray-300">
+              </div>
+
+              {/* Trump/Whoopie info - upper right */}
+              <div className="absolute top-4 right-4 text-sm text-gray-300 text-right">
+                <div>
                   <span>Trump: </span>
                   {lastTrickForReview.trumpSuit ? (
                     <span className={lastTrickForReview.trumpSuit === 'hearts' || lastTrickForReview.trumpSuit === 'diamonds' ? 'text-red-400' : 'text-white'}>
@@ -1247,10 +1351,10 @@ export default function Game() {
                   ) : (
                     <span className="text-yellow-400">J-Trump</span>
                   )}
-                  {lastTrickForReview.whoopieRank && (
-                    <span className="ml-3 text-yellow-300">Whoopie: {lastTrickForReview.whoopieRank}</span>
-                  )}
                 </div>
+                {lastTrickForReview.whoopieRank && (
+                  <div className="text-yellow-300">Whoopie: {lastTrickForReview.whoopieRank}</div>
+                )}
               </div>
 
               {/* Cards positioned around the virtual table */}
@@ -1289,7 +1393,7 @@ export default function Game() {
                     const topIndex = topPlayers.indexOf(playerIndex);
                     const topCount = topPlayers.length;
                     const offset = topCount > 1 ? (topIndex - (topCount - 1) / 2) * 120 : 0;
-                    positionStyle = { top: '60px', left: `calc(50% + ${offset}px)`, transform: 'translateX(-50%)' };
+                    positionStyle = { top: '100px', left: `calc(50% + ${offset}px)`, transform: 'translateX(-50%)' };
                     labelPosition = 'top';
                   }
                 }
@@ -1397,7 +1501,10 @@ export default function Game() {
                   </tr>
                 </thead>
                 <tbody>
-                  {view.players.map((player, index) => {
+                  {view.players
+                    .map((player, index) => ({ player, index }))
+                    .sort((a, b) => (view.scores[b.index] ?? 0) - (view.scores[a.index] ?? 0))
+                    .map(({ player, index }) => {
                     const isMe = index === view.myIndex;
                     const isLeader = view.scores[index] === Math.max(...view.scores) && view.scores[index] > 0;
                     const bid = view.stanza?.bids[index];

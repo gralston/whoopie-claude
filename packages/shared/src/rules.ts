@@ -49,7 +49,6 @@ export function getValidCards(
 ): Card[] {
   // If leading, any card is valid
   if (currentTrick.length === 0) {
-    console.log('[getValidCards] Leading - all cards valid:', hand.length);
     return [...hand];
   }
 
@@ -57,24 +56,17 @@ export function getValidCards(
 
   // If a joker was led, all suits are trump for this trick - any card is valid
   if (leadSuit === null) {
-    console.log('[getValidCards] Joker led - all cards valid:', hand.length);
     return [...hand];
   }
 
   // Must follow suit if able
   const cardsOfLeadSuit = getCardsOfSuit(hand, leadSuit);
 
-  console.log('[getValidCards] Lead suit:', leadSuit,
-    '| Hand:', hand.map(c => isJoker(c) ? 'JOKER' : `${(c as any).rank} of ${(c as any).suit}`).join(', '),
-    '| Cards of lead suit:', cardsOfLeadSuit.length);
-
   if (cardsOfLeadSuit.length > 0) {
-    console.log('[getValidCards] Must follow suit - valid cards:', cardsOfLeadSuit.map(c => `${c.rank} of ${c.suit}`).join(', '));
     return cardsOfLeadSuit;
   }
 
   // Can't follow suit - any card is valid (including trump and Whoopie cards)
-  console.log('[getValidCards] Cannot follow suit - all cards valid');
   return [...hand];
 }
 
@@ -338,14 +330,6 @@ export function resolveTrickWinner(
   const leadSuit = getLeadSuit(trick);
   let winnerIndex = 0;
 
-  console.log(`[resolveTrickWinner] leadSuit: ${leadSuit}, whoopieRank: ${whoopieRank}`);
-  trick.forEach((pc, i) => {
-    const card = pc.card;
-    const cardStr = isJoker(card) ? 'JOKER' : `${(card as any).rank} of ${(card as any).suit}`;
-    const isTrump = wasCardTrumpWhenPlayed(pc, whoopieRank, leadSuit);
-    console.log(`  [${i}] ${cardStr} | trumpSuitAtPlay: ${pc.trumpSuitAtPlay} | jTrumpActive: ${pc.jTrumpActiveAtPlay} | wasWhoopie: ${pc.wasWhoopie} | isTrump: ${isTrump}`);
-  });
-
   for (let i = 1; i < trick.length; i++) {
     const currentWinner = trick[winnerIndex]!;
     const challenger = trick[i]!;
@@ -356,7 +340,6 @@ export function resolveTrickWinner(
     }
   }
 
-  console.log(`  => Winner: [${winnerIndex}]`);
   return winnerIndex;
 }
 

@@ -87,10 +87,8 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
 
     // Place a bid
     socket.on('game:bid', (data: { gameId: string; bid: number }, callback) => {
-      console.log('Received bid:', data.bid, 'for game:', data.gameId);
       try {
         const { session, events } = gameManager.placeBid(data.gameId, socket.id, data.bid);
-        console.log('Bid placed, game phase is now:', session.game.phase);
 
         // Broadcast events
         for (const event of events) {
@@ -232,10 +230,22 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
       }
     });
 
-    // Continue without replacing a disconnected player
+    // Continue without replacing a disconnected player - removes player and redeals
     socket.on('game:continueWithout', (data: { gameId: string; targetPlayerId: string }, callback) => {
       try {
-        gameManager.continueWithoutPlayer(data.gameId, socket.id, data.targetPlayerId);
+        const { session, events } = gameManager.continueWithoutPlayer(data.gameId, socket.id, data.targetPlayerId);
+
+        // Broadcast all events to remaining players
+        for (const event of events) {
+          io.to(session.game.id).emit('game:event', event);
+        }
+
+        // Update views for all players
+        broadcastViewUpdate(io, gameManager, session.game.id);
+
+        // Check if AI needs to act (in case it's now an AI's turn after redeal)
+        aiRunner.checkAndRunAI(data.gameId);
+
         callback({ success: true });
       } catch (error) {
         callback({ success: false, error: (error as Error).message });

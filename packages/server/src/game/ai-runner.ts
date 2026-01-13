@@ -35,19 +35,13 @@ export class AIRunner {
   checkAndRunAI(gameId: string): void {
     const session = this.gameManager.getSession(gameId);
     if (!session) {
-      console.log('AI Runner: No session found for game', gameId);
       return;
     }
-
-    console.log('AI Runner: Checking game', gameId, 'phase:', session.game.phase, 'currentPlayer:', session.game.stanza?.currentPlayerIndex);
 
     const aiPlayer = this.gameManager.getCurrentAIPlayer(gameId);
     if (!aiPlayer) {
-      console.log('AI Runner: Current player is not AI');
       return;
     }
-
-    console.log('AI Runner: AI player needs to act:', aiPlayer.name, 'difficulty:', aiPlayer.difficulty);
 
     const { phase } = session.game;
 
@@ -216,7 +210,11 @@ export class AIRunner {
     }
 
     // Always call Whoopie for AI (they don't forget!)
-    const callWhoopie = isWhoopieCard(selectedCard, game.stanza.whoopieRank) && !isJoker(selectedCard);
+    // Special case: if whoopieRank is null and this is a lead with a non-joker,
+    // this card will DEFINE the whoopie rank, so it IS a whoopie card
+    const isLead = game.stanza.currentTrick.length === 0;
+    const willDefineWhoopieRank = isLead && game.stanza.whoopieRank === null && !isJoker(selectedCard);
+    const callWhoopie = willDefineWhoopieRank || (isWhoopieCard(selectedCard, game.stanza.whoopieRank) && !isJoker(selectedCard));
 
     return { card: selectedCard, callWhoopie };
   }
