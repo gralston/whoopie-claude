@@ -12,10 +12,13 @@ const CORS_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
   : ['http://localhost:3006', 'http://localhost:5173'];
 
+console.log('CORS_ORIGINS:', CORS_ORIGINS);
+
 const app = express();
 app.use(cors({
   origin: CORS_ORIGINS,
   methods: ['GET', 'POST'],
+  credentials: true,
 }));
 app.use(express.json());
 
@@ -24,6 +27,7 @@ const io = new Server(httpServer, {
   cors: {
     origin: CORS_ORIGINS,
     methods: ['GET', 'POST'],
+    credentials: true,
   },
 });
 

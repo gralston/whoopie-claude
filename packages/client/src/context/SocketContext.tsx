@@ -20,6 +20,8 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      transports: ['websocket', 'polling'],
+      withCredentials: true,
     });
 
     newSocket.on('connect', () => {
