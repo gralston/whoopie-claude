@@ -1,4 +1,4 @@
-import { SCORE_MAKE_BID_BASE, SCORE_MISS_BID, SCORE_MISSED_WHOOPIE_CALL } from './constants';
+import { SCORE_MAKE_BID_BASE, SCORE_MISS_BID, SCORE_MISSED_WHOOPIE_CALL } from './constants.js';
 
 // ============================================================================
 // Stanza Scoring

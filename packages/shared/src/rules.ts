@@ -7,14 +7,14 @@ import {
   CompletedTrick,
   StanzaState,
   RANK_VALUES,
-} from './types';
+} from './types.js';
 import {
   isJoker,
   isSuitCard,
   getCardsOfSuit,
   isWhoopieCard,
   cardsEqual,
-} from './cards';
+} from './cards.js';
 
 // ============================================================================
 // Legal Play Determination

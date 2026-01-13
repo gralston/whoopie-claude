@@ -1,17 +1,17 @@
 // Types
-export * from './types';
+export * from './types.js';
 
 // Constants
-export * from './constants';
+export * from './constants.js';
 
 // Card utilities
-export * from './cards';
+export * from './cards.js';
 
 // Rules engine
-export * from './rules';
+export * from './rules.js';
 
 // Scoring
-export * from './scoring';
+export * from './scoring.js';
 
 // Game state machine
-export * from './game-state';
+export * from './game-state.js';

@@ -7,7 +7,7 @@ import { GameManager } from './game/game-manager.js';
 
 const PORT = process.env.PORT || 3005;
 
-// CORS origins - comma-separated list in production, defaults to localhost for dev
+// CORS configuration - comma-separated list in production, defaults to localhost for dev
 const CORS_ORIGINS = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
   : ['http://localhost:3006', 'http://localhost:5173'];

@@ -11,8 +11,8 @@ import {
   Rank,
   GameEvent,
   RANK_VALUES,
-} from './types';
-import { getMaxCardsPerPlayer, DEFAULT_GAME_SETTINGS } from './constants';
+} from './types.js';
+import { getMaxCardsPerPlayer, DEFAULT_GAME_SETTINGS } from './constants.js';
 import {
   createDeck,
   shuffleDeck,
@@ -21,7 +21,7 @@ import {
   isJoker,
   isSuitCard,
   isWhoopieCard,
-} from './cards';
+} from './cards.js';
 import {
   getValidCards,
   getValidBids,
@@ -38,12 +38,12 @@ import {
   allBidsPlaced,
   getLeadSuit,
   canStartStanza,
-} from './rules';
+} from './rules.js';
 import {
   calculateStanzaScores,
   applyScoreChanges,
   calculateTruncatedAverage,
-} from './scoring';
+} from './scoring.js';
 
 // ============================================================================
 // Game Creation

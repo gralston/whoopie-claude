@@ -7,7 +7,7 @@ import {
   SUITS,
   RANKS,
   RANK_VALUES,
-} from './types';
+} from './types.js';
 
 // ============================================================================
 // Card Creation & Utilities
