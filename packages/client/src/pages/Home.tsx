@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useSocket } from '../context/SocketContext';
 import { useGame } from '../context/GameContext';
 import RulesContent from '../components/RulesContent';
+import { HelpMenu } from '../components/HelpMenu';
+import { FeedbackModal } from '../components/FeedbackModal';
 
 export default function Home() {
   const navigate = useNavigate();
@@ -15,6 +17,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showRules, setShowRules] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
 
   const handleCreate = async () => {
     if (!playerName.trim()) {
@@ -188,12 +191,11 @@ export default function Home() {
           <p className="text-gray-500 text-sm">
             Created by Jonathan Wexler, 1966
           </p>
-          <button
-            onClick={() => setShowRules(true)}
-            className="text-blue-400 hover:text-blue-300 text-sm transition mt-2"
-          >
-            The Rules of Whoopie
-          </button>
+          <HelpMenu
+            onShowRules={() => setShowRules(true)}
+            onShowFeedback={() => setShowFeedback(true)}
+            variant="footer"
+          />
         </div>
       </div>
 
@@ -228,6 +230,9 @@ export default function Home() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Feedback Modal */}
+      <FeedbackModal isOpen={showFeedback} onClose={() => setShowFeedback(false)} />
     </div>
   );
 }

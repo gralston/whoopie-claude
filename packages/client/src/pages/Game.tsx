@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '../context/GameContext';
 import Card, { MiniCard, MediumCard, CardBack } from '../components/Card';
 import RulesContent from '../components/RulesContent';
+import { HelpMenu } from '../components/HelpMenu';
+import { FeedbackModal } from '../components/FeedbackModal';
 import { Card as CardType, cardsEqual, isWhoopieCard, isSuitCard, isJoker, Suit, RANK_VALUES } from '@whoopie/shared';
 
 const suitSymbols: Record<Suit, string> = {
@@ -73,6 +75,7 @@ export default function Game() {
   const [error, setError] = useState<string | null>(null);
   const [kickConfirm, setKickConfirm] = useState<{ playerId: string; playerName: string } | null>(null);
   const [showRules, setShowRules] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
   const [showTrickExplanation, setShowTrickExplanation] = useState(false);
   const [showJTrumpHelp, setShowJTrumpHelp] = useState(false);
   const [showJokerWhoopieHelp, setShowJokerWhoopieHelp] = useState(false);
@@ -503,12 +506,10 @@ export default function Game() {
         <div className="max-w-md w-full bg-gray-800 rounded-xl p-6">
           <div className="flex items-center justify-between mb-6">
             <h1 className="text-2xl font-bold text-white">Game Lobby</h1>
-            <button
-              onClick={() => setShowRules(true)}
-              className="text-blue-400 hover:text-blue-300 text-sm transition"
-            >
-              Rules
-            </button>
+            <HelpMenu
+              onShowRules={() => setShowRules(true)}
+              onShowFeedback={() => setShowFeedback(true)}
+            />
           </div>
 
           {/* Game ID */}
@@ -641,6 +642,9 @@ export default function Game() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Feedback Modal (in waiting room) */}
+        <FeedbackModal isOpen={showFeedback} onClose={() => setShowFeedback(false)} />
       </div>
     );
   }
@@ -685,12 +689,10 @@ export default function Game() {
           >
             Scoreboard
           </button>
-          <button
-            onClick={() => setShowRules(true)}
-            className="text-purple-400 hover:text-purple-300 text-sm transition"
-          >
-            Rules
-          </button>
+          <HelpMenu
+            onShowRules={() => setShowRules(true)}
+            onShowFeedback={() => setShowFeedback(true)}
+          />
         </div>
         <div className="flex items-center gap-4">
           <div className="text-white text-sm">
@@ -1779,6 +1781,9 @@ export default function Game() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Feedback Modal */}
+      <FeedbackModal isOpen={showFeedback} onClose={() => setShowFeedback(false)} />
 
       {/* Error toast */}
       <AnimatePresence>

@@ -4,6 +4,9 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import { setupSocketHandlers } from './socket-handlers.js';
 import { GameManager } from './game/game-manager.js';
+import adminRoutes from './routes/admin.js';
+import feedbackRoutes from './routes/feedback.js';
+import { incrementConnections, decrementConnections } from './services/stats.js';
 
 const PORT = process.env.PORT || 3005;
 
@@ -41,6 +44,18 @@ app.get('/api/health', (_req, res) => {
 
 app.get('/api/games', (_req, res) => {
   res.json(gameManager.getPublicGames());
+});
+
+// Mount routes
+app.use('/api', feedbackRoutes);
+app.use('/api/admin', adminRoutes);
+
+// Track connections for statistics
+io.on('connection', (socket) => {
+  incrementConnections();
+  socket.on('disconnect', () => {
+    decrementConnections();
+  });
 });
 
 // Setup Socket.io handlers

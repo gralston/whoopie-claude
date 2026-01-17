@@ -2,6 +2,13 @@ import { Server, Socket } from 'socket.io';
 import { GameManager } from './game/game-manager.js';
 import { AIRunner } from './game/ai-runner.js';
 import { Card, AIDifficulty, GameSettings } from '@whoopie/shared';
+import {
+  recordGameCreated,
+  recordGameStarted,
+  recordGameCompleted,
+  recordGameAbandoned,
+  updateGamePlayerCount
+} from './services/stats.js';
 
 export function setupSocketHandlers(io: Server, gameManager: GameManager): void {
   const aiRunner = new AIRunner(io, gameManager);
@@ -14,6 +21,11 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
       try {
         const session = gameManager.createGame(socket.id, data.playerName, data.settings);
         socket.join(session.game.id);
+
+        // Track game creation
+        const humanCount = session.game.players.filter(p => p.type === 'human').length;
+        const aiCount = session.game.players.filter(p => p.type === 'ai').length;
+        recordGameCreated(session.game.id, humanCount + aiCount, aiCount);
 
         const view = gameManager.getPlayerView(session.game.id, socket.id);
         callback({ success: true, gameId: session.game.id, view });
@@ -31,6 +43,11 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
           data.playerName
         );
         socket.join(session.game.id);
+
+        // Track player count update
+        const humanCount = session.game.players.filter(p => p.type === 'human').length;
+        const aiCount = session.game.players.filter(p => p.type === 'ai').length;
+        updateGamePlayerCount(session.game.id, humanCount + aiCount, aiCount);
 
         // Notify other players
         socket.to(session.game.id).emit('game:event', event);
@@ -51,6 +68,11 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
       try {
         const { session, event } = gameManager.addAI(data.gameId, data.difficulty);
 
+        // Track player count update
+        const humanCount = session.game.players.filter(p => p.type === 'human').length;
+        const aiCount = session.game.players.filter(p => p.type === 'ai').length;
+        updateGamePlayerCount(session.game.id, humanCount + aiCount, aiCount);
+
         // Notify all players
         io.to(session.game.id).emit('game:event', event);
 
@@ -67,6 +89,9 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
     socket.on('game:start', (data: { gameId: string }, callback) => {
       try {
         const { session, events } = gameManager.startGame(data.gameId, socket.id);
+
+        // Track game started
+        recordGameStarted(session.game.id);
 
         // Broadcast events
         for (const event of events) {
@@ -127,6 +152,11 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
 
         callback({ success: true });
 
+        // Track game completion
+        if (session.game.phase === 'gameEnd') {
+          recordGameCompleted(session.game.id);
+        }
+
         // Handle phase transitions
         if (session.game.phase === 'trickEnd') {
           // Pause for: last card anim (800ms) + display (4s) + gather (1s) + collect (1.5s) + buffer
@@ -146,6 +176,13 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
               io.to(nextSession.game.id).emit('game:event', event);
             }
             broadcastViewUpdate(io, gameManager, data.gameId);
+
+            // Check if game ended after stanza transition
+            const updatedSession = gameManager.getSession(data.gameId);
+            if (updatedSession?.game.phase === 'gameEnd') {
+              recordGameCompleted(data.gameId);
+            }
+
             aiRunner.checkAndRunAI(data.gameId);
           }, 8000);
         } else {
