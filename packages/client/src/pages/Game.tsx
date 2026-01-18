@@ -1306,8 +1306,8 @@ export default function Game() {
                     </motion.div>
                   );
                 })
-              ) : view.stanza?.currentTrick && view.stanza.currentTrick.length > 0 ? (
-                /* Show current trick during playing phase */
+              ) : view.phase === 'playing' && view.stanza?.currentTrick && view.stanza.currentTrick.length > 0 ? (
+                /* Show current trick during playing phase only */
                 view.stanza.currentTrick.map((played, index) => {
                   // Calculate start position based on player's seat
                   const numPlayers = view.players.length;
