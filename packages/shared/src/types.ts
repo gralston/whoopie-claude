@@ -176,6 +176,7 @@ export type GameEvent =
   | { type: 'playerJoined'; player: Player }
   | { type: 'playerLeft'; playerId: string; playerName?: string; replacement?: Player }
   | { type: 'playerRejoined'; playerIndex: number; playerName: string } // Player rejoined a resumed game
+  | { type: 'playerReconnected'; playerIndex: number; playerName: string } // Player reconnected after socket drop
   | { type: 'gameStarted' }
   | { type: 'gamePaused'; resumeCode: string } // Game was paused
   | { type: 'gameResuming'; playerNames: string[] } // Game is being resumed, waiting for players

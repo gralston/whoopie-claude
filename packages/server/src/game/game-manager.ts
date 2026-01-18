@@ -247,13 +247,12 @@ export class GameManager {
     const leavingPlayer = session.game.players.find(p => p.id === playerId);
     const leavingPlayerName = leavingPlayer?.name || 'Unknown';
 
-    // Clean up socket mappings
-    this.socketToGame.delete(socketId);
-    this.socketToPlayer.delete(socketId);
-    session.playerSockets.delete(playerId);
-
-    // If game hasn't started, just remove the player
+    // If game hasn't started, clean up fully and remove the player
     if (session.game.phase === 'waiting') {
+      // Clean up socket mappings completely for waiting phase
+      this.socketToGame.delete(socketId);
+      this.socketToPlayer.delete(socketId);
+      session.playerSockets.delete(playerId);
       const { game, event } = removePlayer(session.game, playerId);
       session.game = game;
 
@@ -273,7 +272,13 @@ export class GameManager {
       return { gameId, event };
     }
 
-    // Game in progress - mark player as disconnected
+    // Game in progress - mark player as disconnected but keep them in the game
+    // Clean up socket-specific mappings but KEEP playerSockets so reconnection works
+    this.socketToGame.delete(socketId);
+    this.socketToPlayer.delete(socketId);
+    // Note: We deliberately do NOT delete from playerSockets here
+    // This allows the player to reconnect with a new socket
+
     const playerIndex = session.game.players.findIndex(p => p.id === playerId);
     if (playerIndex !== -1) {
       const player = session.game.players[playerIndex] as HumanPlayer;
@@ -457,6 +462,46 @@ export class GameManager {
     return session.game.players
       .filter(p => p.type === 'human' && !(p as HumanPlayer).isConnected)
       .map(p => ({ id: p.id, name: p.name }));
+  }
+
+  // Reconnect a player who lost their socket connection
+  reconnectPlayer(gameId: string, socketId: string, playerId: string): {
+    session: GameSession;
+    playerIndex: number;
+  } | { error: string } {
+    const session = this.games.get(gameId);
+    if (!session) {
+      return { error: 'Game not found' };
+    }
+
+    // Find the player in the game
+    const playerIndex = session.game.players.findIndex(p => p.id === playerId);
+    if (playerIndex === -1) {
+      return { error: 'Player not found in game' };
+    }
+
+    const player = session.game.players[playerIndex]!;
+    if (player.type !== 'human') {
+      return { error: 'Cannot reconnect AI player' };
+    }
+
+    // Check if this player is already connected with a different socket
+    const existingSocketId = session.playerSockets.get(playerId);
+    if (existingSocketId && existingSocketId !== socketId) {
+      // Clean up old socket mapping
+      this.socketToGame.delete(existingSocketId);
+      this.socketToPlayer.delete(existingSocketId);
+    }
+
+    // Re-establish socket mappings
+    session.playerSockets.set(playerId, socketId);
+    this.socketToGame.set(socketId, gameId);
+    this.socketToPlayer.set(socketId, playerId);
+
+    // Mark player as connected
+    (player as HumanPlayer).isConnected = true;
+
+    return { session, playerIndex };
   }
 
   getSession(gameId: string): GameSession | undefined {

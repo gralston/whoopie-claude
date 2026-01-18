@@ -98,6 +98,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [resumeCode, setResumeCode] = useState<string | null>(null);
   const [missingPlayers, setMissingPlayers] = useState<string[]>([]);
 
+  // Track if we need to reconnect after socket reconnects
+  const [needsReconnect, setNeedsReconnect] = useState(false);
+
   // Listen for game events
   useEffect(() => {
     if (!socket) return;
@@ -132,11 +135,43 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       setDisconnectedPlayer(data);
     };
 
+    // When socket disconnects, mark that we need to reconnect
+    const handleDisconnect = () => {
+      if (gameId && playerId) {
+        console.log('Socket disconnected, will attempt to reconnect to game...');
+        setNeedsReconnect(true);
+      }
+    };
+
+    // When socket reconnects, attempt to rejoin the game
+    const handleConnect = () => {
+      if (needsReconnect && gameId && playerId) {
+        console.log('Socket reconnected, attempting to reconnect to game...');
+        socket.emit('game:reconnect', { gameId, playerId }, (response: { success: boolean; view?: PlayerView; error?: string }) => {
+          if (response.success && response.view) {
+            console.log('Successfully reconnected to game');
+            setView(response.view);
+            setNeedsReconnect(false);
+          } else {
+            console.error('Failed to reconnect to game:', response.error);
+            // Game might be gone, clear state
+            setGameId(null);
+            setPlayerId(null);
+            setView(null);
+            setEvents([]);
+            setNeedsReconnect(false);
+          }
+        });
+      }
+    };
+
     socket.on('game:event', handleEvent);
     socket.on('game:state', handleState);
     socket.on('game:update', handleUpdate);
     socket.on('game:kicked', handleKicked);
     socket.on('game:playerDisconnected', handlePlayerDisconnected);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('connect', handleConnect);
 
     return () => {
       socket.off('game:event', handleEvent);
@@ -144,8 +179,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       socket.off('game:update', handleUpdate);
       socket.off('game:kicked', handleKicked);
       socket.off('game:playerDisconnected', handlePlayerDisconnected);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('connect', handleConnect);
     };
-  }, [socket]);
+  }, [socket, gameId, playerId, needsReconnect]);
 
   const createGame = useCallback(async (name: string): Promise<string> => {
     const response = await emit<{ gameId: string; view: PlayerView }>('game:create', {

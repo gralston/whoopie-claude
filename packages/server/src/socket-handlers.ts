@@ -64,6 +64,41 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
       }
     });
 
+    // Reconnect to a game after socket disconnect
+    socket.on('game:reconnect', (data: { gameId: string; playerId: string }, callback) => {
+      try {
+        const result = gameManager.reconnectPlayer(data.gameId, socket.id, data.playerId);
+
+        if ('error' in result) {
+          callback({ success: false, error: result.error });
+          return;
+        }
+
+        const { session, playerIndex } = result;
+        socket.join(session.game.id);
+
+        // Notify other players that this player reconnected
+        const playerName = session.game.players[playerIndex]!.name;
+        const reconnectEvent = {
+          type: 'playerReconnected' as const,
+          playerIndex,
+          playerName
+        };
+        socket.to(session.game.id).emit('game:event', reconnectEvent);
+
+        // Send full state to reconnected player
+        const view = gameManager.getPlayerView(session.game.id, socket.id);
+        callback({ success: true, view });
+
+        // Send updated view to all other players (to update isConnected status)
+        broadcastViewUpdate(io, gameManager, session.game.id, socket.id);
+
+        console.log(`Player ${playerName} reconnected to game ${data.gameId}`);
+      } catch (error) {
+        callback({ success: false, error: (error as Error).message });
+      }
+    });
+
     // Add AI player
     socket.on('game:addAI', (data: { gameId: string; difficulty: AIDifficulty }, callback) => {
       try {

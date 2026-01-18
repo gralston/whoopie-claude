@@ -95,6 +95,7 @@ export default function Game() {
   const [showScoreboard, setShowScoreboard] = useState(false);
   const [scoreDeltas, setScoreDeltas] = useState<number[] | null>(null);
   const [bidAnnouncements, setBidAnnouncements] = useState<Map<number, number>>(new Map());
+  const [specialCardAnnouncement, setSpecialCardAnnouncement] = useState<{ type: 'whoopie' | 'scramble'; playerName: string } | null>(null);
   const prevPhaseRef = useRef<string | null>(null);
   const prevTrickLengthRef = useRef<number>(0);
   const cutShownRef = useRef<boolean>(false);
@@ -357,8 +358,16 @@ export default function Game() {
         setNotification(message);
         setTimeout(() => setNotification(null), 5000);
       }
+
+      // Show Whoopie/Scramble announcement
+      if (event.type === 'cardPlayed' && (event.wasWhoopie || event.wasScramble)) {
+        const playerName = view?.players[event.playerIndex]?.name ?? 'Someone';
+        const type = event.wasScramble ? 'scramble' : 'whoopie';
+        setSpecialCardAnnouncement({ type, playerName });
+        setTimeout(() => setSpecialCardAnnouncement(null), 2500);
+      }
     }
-  }, [events]);
+  }, [events, view?.players]);
 
   if (!view) {
     return (
@@ -1969,6 +1978,44 @@ export default function Game() {
       <AnimatePresence>
         {resumeCode && (
           <PauseModal resumeCode={resumeCode} onClose={handleClosePauseModal} />
+        )}
+      </AnimatePresence>
+
+      {/* Whoopie/Scramble Announcement */}
+      <AnimatePresence>
+        {specialCardAnnouncement && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            transition={{ type: 'spring', duration: 0.5 }}
+            className="fixed inset-0 flex items-center justify-center z-50 pointer-events-none"
+          >
+            <div className="text-center">
+              <motion.div
+                animate={{
+                  scale: [1, 1.1, 1],
+                  rotate: [0, -3, 3, -3, 0]
+                }}
+                transition={{ duration: 0.8, repeat: 2 }}
+                className={`text-6xl md:text-8xl font-bold ${
+                  specialCardAnnouncement.type === 'whoopie'
+                    ? 'text-yellow-400 drop-shadow-[0_0_20px_rgba(250,204,21,0.8)]'
+                    : 'text-purple-400 drop-shadow-[0_0_20px_rgba(192,132,252,0.8)]'
+                }`}
+              >
+                {specialCardAnnouncement.type === 'whoopie' ? 'WHOOPIE!' : 'SCRAMBLE!'}
+              </motion.div>
+              <motion.p
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="text-white text-xl mt-2"
+              >
+                {specialCardAnnouncement.playerName} played a {specialCardAnnouncement.type}!
+              </motion.p>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 
