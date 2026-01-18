@@ -1194,7 +1194,8 @@ export default function Game() {
           <div className="flex items-center justify-center gap-3">
             <AnimatePresence mode="sync">
               {/* Always use currentTrick as source, animate based on phase */}
-              {view.stanza?.currentTrick && view.stanza.currentTrick.length > 0 ? (
+              {/* Don't render when phase is 'cleared' - prevents flash after collection */}
+              {trickAnimPhase !== 'cleared' && view.stanza?.currentTrick && view.stanza.currentTrick.length > 0 ? (
                 view.stanza.currentTrick.map((played, index) => {
                   const numPlayers = view.players.length;
                   const playerIndex = played.playerIndex;
