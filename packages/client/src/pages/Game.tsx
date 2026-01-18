@@ -1190,130 +1190,32 @@ export default function Game() {
             )}
           </AnimatePresence>
 
-          {/* Cards display */}
+          {/* Cards display - unified rendering for seamless animation */}
           <div className="flex items-center justify-center gap-3">
             <AnimatePresence mode="sync">
-              {/* Show completed trick during complete/gathering/collecting phases */}
-              {(trickAnimPhase === 'complete' || trickAnimPhase === 'gathering' || trickAnimPhase === 'collecting') && completedTrick ? (
-                completedTrick.cards.map((played, index) => {
-                  // Calculate animation based on phase
+              {/* Always use currentTrick as source, animate based on phase */}
+              {view.stanza?.currentTrick && view.stanza.currentTrick.length > 0 ? (
+                view.stanza.currentTrick.map((played, index) => {
                   const numPlayers = view.players.length;
-                  const winnerIndex = completedTrick.winnerIndex;
-                  const isWinnerMe = winnerIndex === view.myIndex;
-                  const numCards = completedTrick.cards.length;
+                  const playerIndex = played.playerIndex;
+                  const isMe = playerIndex === view.myIndex;
+                  const numCards = view.stanza!.currentTrick.length;
                   const centerOffset = (index - (numCards - 1) / 2);
 
-                  // Calculate winner's seat position using elliptical layout
-                  // Same algorithm as player positioning
-                  const numOthers = numPlayers - 1;
-                  const relativePos = (winnerIndex - view.myIndex + numPlayers) % numPlayers;
+                  // Determine if we're in the completion animation phase
+                  const isCompletionPhase = trickAnimPhase === 'complete' || trickAnimPhase === 'collecting';
+                  const winnerIndex = completedTrick?.winnerIndex;
+                  const isWinner = winnerIndex !== undefined && playerIndex === winnerIndex;
+                  const isWinnerMe = winnerIndex === view.myIndex;
 
-                  // Phase animations:
-                  // 'complete': cards spread out normally
-                  // 'gathering': cards come together, stack up
-                  // 'collecting': stacked cards move to winner's seat
-                  let targetX = 0;
+                  // Calculate animation targets based on phase
+                  let targetX = centerOffset * 55; // Default spread position
                   let targetY = 0;
                   let targetScale = 1;
                   let targetOpacity = 1;
                   let targetRotate = 0;
 
-                  if (trickAnimPhase === 'complete') {
-                    // Cards spread out
-                    targetX = centerOffset * 60;
-                  } else if (trickAnimPhase === 'gathering') {
-                    // Cards come together and stack with slight offset
-                    targetX = index * 3;
-                    targetY = index * -2;
-                    targetRotate = (index - (numCards - 1) / 2) * 5;
-                  } else if (trickAnimPhase === 'collecting') {
-                    // Cards move as a stack to winner's seat position
-                    const stackOffset = index * 2;
-
-                    if (isWinnerMe) {
-                      // Winner is me - cards go to bottom
-                      targetX = stackOffset;
-                      targetY = 250;
-                    } else {
-                      // Use same slot-based positioning as seat layout
-                      const playerOrdinal = relativePos - 1;
-
-                      // Simplified position lookup (approximate pixel offsets from center)
-                      // These roughly match the percentage positions in getPositions()
-                      const getWinnerOffset = (count: number, idx: number): [number, number] => {
-                        // Convert percentage to rough pixel offset (assuming ~800px wide, ~500px tall play area)
-                        const pctToX = (pct: number) => (pct - 50) * 7;
-                        const pctToY = (pct: number) => (pct - 50) * 5;
-
-                        const positionSets: { [key: number]: Array<[number, number]> } = {
-                          1: [[50, 18]],
-                          2: [[20, 35], [80, 35]],
-                          3: [[15, 45], [50, 18], [85, 45]],
-                          4: [[12, 50], [35, 18], [65, 18], [88, 50]],
-                          5: [[10, 55], [25, 25], [50, 15], [75, 25], [90, 55]],
-                          6: [[8, 58], [20, 30], [42, 15], [58, 15], [80, 30], [92, 58]],
-                          7: [[6, 60], [16, 35], [35, 17], [50, 13], [65, 17], [84, 35], [94, 60]],
-                          8: [[5, 62], [14, 40], [30, 20], [46, 13], [54, 13], [70, 20], [86, 40], [95, 62]],
-                          9: [[4, 65], [12, 45], [24, 25], [40, 15], [50, 12], [60, 15], [76, 25], [88, 45], [96, 65]],
-                        };
-
-                        const positions = positionSets[count] ?? positionSets[9]!;
-                        const [px, py] = positions[Math.min(idx, positions.length - 1)] ?? [50, 30];
-                        return [pctToX(px), pctToY(py)];
-                      };
-
-                      const [offX, offY] = getWinnerOffset(numOthers, playerOrdinal);
-                      targetX = offX + stackOffset;
-                      targetY = offY;
-                    }
-                    targetScale = 0.4;
-                    targetOpacity = 0;
-                    targetRotate = (index - (numCards - 1) / 2) * 5;
-                  }
-
-                  const isWinner = played.playerIndex === completedTrick.winnerIndex;
-
-                  return (
-                    <motion.div
-                      key={`complete-${played.playerIndex}-${index}`}
-                      initial={{ scale: 1, y: 0, x: centerOffset * 60, opacity: 1, rotate: 0 }}
-                      animate={{
-                        scale: targetScale,
-                        y: targetY,
-                        x: targetX,
-                        opacity: targetOpacity,
-                        rotate: targetRotate,
-                      }}
-                      transition={{
-                        type: 'tween',
-                        duration: trickAnimPhase === 'gathering' ? 0.8 : 1.2,
-                        ease: 'easeInOut',
-                      }}
-                      className="relative"
-                      style={{ zIndex: index }}
-                    >
-                      <div className={trickAnimPhase === 'complete' && isWinner ? 'ring-4 ring-yellow-400 rounded-lg' : ''}>
-                        <MiniCard card={played.card} highlight={isWinner} />
-                      </div>
-                      {trickAnimPhase === 'complete' && (() => {
-                        const { initials, colorClass } = getPlayerDisplay(view.players, played.playerIndex, view.myIndex);
-                        return (
-                          <p className={`absolute -bottom-5 left-1/2 -translate-x-1/2 text-xs font-bold whitespace-nowrap ${isWinner ? 'text-yellow-400' : colorClass}`}>
-                            {initials}
-                          </p>
-                        );
-                      })()}
-                    </motion.div>
-                  );
-                })
-              ) : view.phase === 'playing' && view.stanza?.currentTrick && view.stanza.currentTrick.length > 0 ? (
-                /* Show current trick during playing phase only */
-                view.stanza.currentTrick.map((played, index) => {
-                  // Calculate start position based on player's seat
-                  const numPlayers = view.players.length;
-                  const playerIndex = played.playerIndex;
-                  const isMe = playerIndex === view.myIndex;
-
+                  // Calculate start position (from player's seat)
                   let startX = 0;
                   let startY = 0;
                   let startRotate = 0;
@@ -1324,40 +1226,77 @@ export default function Game() {
                   } else {
                     const relativePos = (playerIndex - view.myIndex + numPlayers) % numPlayers;
                     if (relativePos === 1) {
-                      // Left player
                       startX = -300;
-                      startY = 0;
                       startRotate = -10;
                     } else if (relativePos === numPlayers - 1) {
-                      // Right player
                       startX = 300;
-                      startY = 0;
                       startRotate = 10;
                     } else {
-                      // Top player(s)
-                      startX = 0;
                       startY = -180;
                       startRotate = -10;
                     }
                   }
 
+                  // Adjust targets for collecting phase
+                  if (trickAnimPhase === 'collecting' && winnerIndex !== undefined) {
+                    const numOthers = numPlayers - 1;
+                    const relativePos = (winnerIndex - view.myIndex + numPlayers) % numPlayers;
+                    const stackOffset = index * 2;
+
+                    if (isWinnerMe) {
+                      targetX = stackOffset;
+                      targetY = 250;
+                    } else {
+                      const playerOrdinal = relativePos - 1;
+                      const getWinnerOffset = (count: number, idx: number): [number, number] => {
+                        const pctToX = (pct: number) => (pct - 50) * 7;
+                        const pctToY = (pct: number) => (pct - 50) * 5;
+                        const positionSets: { [key: number]: Array<[number, number]> } = {
+                          1: [[50, 18]], 2: [[20, 35], [80, 35]], 3: [[15, 45], [50, 18], [85, 45]],
+                          4: [[12, 50], [35, 18], [65, 18], [88, 50]], 5: [[10, 55], [25, 25], [50, 15], [75, 25], [90, 55]],
+                        };
+                        const positions = positionSets[count] ?? positionSets[5]!;
+                        const [px, py] = positions[Math.min(idx, positions.length - 1)] ?? [50, 30];
+                        return [pctToX(px), pctToY(py)];
+                      };
+                      const [offX, offY] = getWinnerOffset(numOthers, playerOrdinal);
+                      targetX = offX + stackOffset;
+                      targetY = offY;
+                    }
+                    targetScale = 0.4;
+                    targetOpacity = 0;
+                    targetRotate = (index - (numCards - 1) / 2) * 5;
+                  }
+
+                  // Show winner highlight during complete phase
+                  const showWinnerHighlight = trickAnimPhase === 'complete' && isWinner;
+
                   return (
                     <motion.div
-                      key={`playing-${played.playerIndex}-${index}`}
+                      key={`trick-card-${played.playerIndex}`}
                       initial={{ scale: 0.3, y: startY, x: startX, opacity: 0, rotate: startRotate }}
-                      animate={{ scale: 1, y: 0, x: 0, opacity: 1, rotate: 0 }}
+                      animate={{
+                        scale: targetScale,
+                        y: targetY,
+                        x: targetX,
+                        opacity: targetOpacity,
+                        rotate: targetRotate,
+                      }}
                       transition={{
                         type: 'tween',
-                        duration: 0.6,
+                        duration: trickAnimPhase === 'collecting' ? 1.0 : 0.5,
                         ease: 'easeOut',
                       }}
                       className="relative"
+                      style={{ zIndex: index }}
                     >
-                      <MiniCard card={played.card} />
+                      <div className={showWinnerHighlight ? 'ring-4 ring-yellow-400 rounded-lg' : ''}>
+                        <MiniCard card={played.card} highlight={showWinnerHighlight} />
+                      </div>
                       {(() => {
                         const { initials, colorClass } = getPlayerDisplay(view.players, played.playerIndex, view.myIndex);
                         return (
-                          <p className={`absolute -bottom-5 left-1/2 -translate-x-1/2 text-xs font-bold whitespace-nowrap ${colorClass}`}>
+                          <p className={`absolute -bottom-5 left-1/2 -translate-x-1/2 text-xs font-bold whitespace-nowrap ${showWinnerHighlight ? 'text-yellow-400' : colorClass}`}>
                             {initials}
                           </p>
                         );
