@@ -16,6 +16,57 @@ const suitSymbols: Record<Suit, string> = {
   clubs: '♣',
 };
 
+// Player seat colors - used for initials on trick cards
+const playerColors = [
+  'text-blue-400',    // Player 0 (often "you")
+  'text-green-400',   // Player 1
+  'text-yellow-400',  // Player 2
+  'text-pink-400',    // Player 3
+  'text-cyan-400',    // Player 4
+  'text-orange-400',  // Player 5
+];
+
+// Get player initials with color, disambiguating duplicates
+function getPlayerDisplay(
+  players: Array<{ name: string }>,
+  playerIndex: number,
+  myIndex: number
+): { initials: string; colorClass: string } {
+  const player = players[playerIndex];
+  if (!player) return { initials: '?', colorClass: 'text-gray-400' };
+
+  // Get first letter of first name (or first two if single word)
+  const name = player.name.trim();
+  let initials = name.charAt(0).toUpperCase();
+
+  // Check for duplicate initials
+  const sameInitials = players.filter((p, i) =>
+    i !== playerIndex && p.name.trim().charAt(0).toUpperCase() === initials
+  );
+
+  if (sameInitials.length > 0) {
+    // Add second character or number to disambiguate
+    if (name.length > 1) {
+      initials = name.substring(0, 2).toUpperCase();
+    }
+    // If still duplicate, add player position number
+    const stillDuplicate = players.filter((p, i) =>
+      i !== playerIndex && p.name.trim().substring(0, 2).toUpperCase() === initials
+    );
+    if (stillDuplicate.length > 0) {
+      initials = initials.charAt(0) + (playerIndex + 1);
+    }
+  }
+
+  // Use "ME" for current player
+  if (playerIndex === myIndex) {
+    initials = 'ME';
+  }
+
+  const colorClass = playerColors[playerIndex % playerColors.length] ?? 'text-gray-400';
+  return { initials, colorClass };
+}
+
 // Sort hand by suit (clubs, diamonds, hearts, spades) then by rank ascending (2, 3, ... A)
 function sortHandForDisplay(cards: CardType[]): CardType[] {
   const suitOrder = ['clubs', 'diamonds', 'hearts', 'spades'] as const;
@@ -44,6 +95,7 @@ interface CompletedTrickInfo {
   trumpSuit: string | null;
   whoopieRank: string | null;
   whoopieDefiningCard: CardType | null;
+  jTrumpActive: boolean;
 }
 
 // Dealer cut display state
@@ -213,6 +265,7 @@ export default function Game() {
           trumpSuit: view.stanza?.currentTrumpSuit ?? null,
           whoopieRank: view.stanza?.whoopieRank ?? null,
           whoopieDefiningCard: view.stanza?.whoopieDefiningCard ?? null,
+          jTrumpActive: view.stanza?.jTrumpActive ?? false,
         };
         setCompletedTrick(trickInfo);
         setLastTrickForReview(trickInfo); // Save for review feature
@@ -220,23 +273,18 @@ export default function Game() {
         // Small delay to let last card animate in, then show complete phase
         setTimeout(() => {
           setTrickAnimPhase('complete');
-        }, 800); // Let the last card animate in
+        }, 600); // Let the last card animate in
 
-        // Phase 2: Gather cards together (after 4 seconds to let everyone see)
-        setTimeout(() => {
-          setTrickAnimPhase('gathering');
-        }, 4800); // 800ms + 4000ms (increased display time)
-
-        // Phase 3: Collect to winner (after 1 second of gathering)
+        // Phase 2: Skip gathering, go straight to collecting (after 1.5s display)
         setTimeout(() => {
           setTrickAnimPhase('collecting');
-        }, 5800); // 4800ms + 1000ms
+        }, 2100); // 600ms + 1500ms display time
 
-        // Phase 4: Clear (after 1.5 more seconds for collection animation)
+        // Phase 3: Clear (after 1 second for collection animation)
         setTimeout(() => {
           setTrickAnimPhase('cleared');
           setCompletedTrick(null);
-        }, 7300); // 5800ms + 1500ms
+        }, 3100); // 2100ms + 1000ms
       }
     }
 
@@ -910,7 +958,14 @@ export default function Game() {
           })()}
         </div>
         <div className="text-white text-sm">
-          Trump: {view.stanza?.currentTrumpSuit ? (
+          Trump: {view.stanza?.jTrumpActive ? (
+            <button
+              onClick={() => setShowJTrumpHelp(true)}
+              className="text-yellow-400 hover:text-yellow-300 underline decoration-dotted"
+            >
+              J-Trump ?
+            </button>
+          ) : view.stanza?.currentTrumpSuit ? (
             <span className={view.stanza.currentTrumpSuit === 'hearts' || view.stanza.currentTrumpSuit === 'diamonds' ? 'text-red-400' : ''}>
               {suitSymbols[view.stanza.currentTrumpSuit as Suit]}
             </span>
@@ -1240,11 +1295,14 @@ export default function Game() {
                       <div className={trickAnimPhase === 'complete' && isWinner ? 'ring-4 ring-yellow-400 rounded-lg' : ''}>
                         <MiniCard card={played.card} highlight={isWinner} />
                       </div>
-                      {trickAnimPhase === 'complete' && (
-                        <p className={`absolute -bottom-5 left-1/2 -translate-x-1/2 text-xs whitespace-nowrap ${isWinner ? 'text-yellow-400 font-bold' : 'text-white'}`}>
-                          {view.players[played.playerIndex]?.name}
-                        </p>
-                      )}
+                      {trickAnimPhase === 'complete' && (() => {
+                        const { initials, colorClass } = getPlayerDisplay(view.players, played.playerIndex, view.myIndex);
+                        return (
+                          <p className={`absolute -bottom-5 left-1/2 -translate-x-1/2 text-xs font-bold whitespace-nowrap ${isWinner ? 'text-yellow-400' : colorClass}`}>
+                            {initials}
+                          </p>
+                        );
+                      })()}
                     </motion.div>
                   );
                 })
@@ -1296,9 +1354,14 @@ export default function Game() {
                       className="relative"
                     >
                       <MiniCard card={played.card} />
-                      <p className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-white text-xs whitespace-nowrap">
-                        {view.players[played.playerIndex]?.name}
-                      </p>
+                      {(() => {
+                        const { initials, colorClass } = getPlayerDisplay(view.players, played.playerIndex, view.myIndex);
+                        return (
+                          <p className={`absolute -bottom-5 left-1/2 -translate-x-1/2 text-xs font-bold whitespace-nowrap ${colorClass}`}>
+                            {initials}
+                          </p>
+                        );
+                      })()}
                     </motion.div>
                   );
                 })
@@ -1535,7 +1598,9 @@ export default function Game() {
               <div className="absolute top-4 right-4 text-sm text-gray-300 text-right">
                 <div>
                   <span>Trump: </span>
-                  {lastTrickForReview.trumpSuit ? (
+                  {lastTrickForReview.jTrumpActive ? (
+                    <span className="text-yellow-400">J-Trump</span>
+                  ) : lastTrickForReview.trumpSuit ? (
                     <span className={lastTrickForReview.trumpSuit === 'hearts' || lastTrickForReview.trumpSuit === 'diamonds' ? 'text-red-400' : 'text-white'}>
                       {suitSymbols[lastTrickForReview.trumpSuit as Suit]}
                     </span>
