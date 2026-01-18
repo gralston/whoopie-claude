@@ -9,6 +9,7 @@ import {
   recordGameAbandoned,
   updateGamePlayerCount
 } from './services/stats.js';
+import { saveGameState, loadGameState, checkResumeCode } from './services/pause.js';
 
 export function setupSocketHandlers(io: Server, gameManager: GameManager): void {
   const aiRunner = new AIRunner(io, gameManager);
@@ -284,6 +285,145 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
         aiRunner.checkAndRunAI(data.gameId);
 
         callback({ success: true });
+      } catch (error) {
+        callback({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Pause a game and save state
+    socket.on('game:pause', async (data: { gameId: string }, callback) => {
+      try {
+        const pauseResult = gameManager.pauseGame(data.gameId);
+        if (!pauseResult) {
+          callback({ success: false, error: 'Game not found' });
+          return;
+        }
+
+        const { gameState, socketIds } = pauseResult;
+
+        // Save to Supabase
+        const saveResult = await saveGameState(gameState);
+        if (!saveResult.success) {
+          callback({ success: false, error: saveResult.error });
+          return;
+        }
+
+        // Notify all players with the resume code
+        const pauseEvent = { type: 'gamePaused' as const, resumeCode: saveResult.resumeCode! };
+        for (const sid of socketIds) {
+          io.to(sid).emit('game:event', pauseEvent);
+        }
+
+        callback({ success: true, resumeCode: saveResult.resumeCode });
+      } catch (error) {
+        callback({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Check if a resume code is valid
+    socket.on('game:checkResumeCode', async (data: { resumeCode: string }, callback) => {
+      try {
+        const result = await checkResumeCode(data.resumeCode);
+        callback({ success: result.valid, playerNames: result.playerNames, error: result.error });
+      } catch (error) {
+        callback({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Resume a paused game
+    socket.on('game:resume', async (data: { resumeCode: string; playerName: string }, callback) => {
+      try {
+        const loadResult = await loadGameState(data.resumeCode);
+        if (!loadResult.success || !loadResult.gameState) {
+          callback({ success: false, error: loadResult.error });
+          return;
+        }
+
+        const resumeResult = gameManager.resumeGame(
+          loadResult.gameState,
+          loadResult.playerNames || [],
+          socket.id,
+          data.playerName
+        );
+
+        if ('error' in resumeResult) {
+          callback({ success: false, error: resumeResult.error });
+          return;
+        }
+
+        const { session, playerId, playerIndex } = resumeResult;
+        socket.join(session.game.id);
+
+        // Get the player names that still need to rejoin
+        const missingPlayers = gameManager.getMissingPlayers(session.game.id);
+
+        const view = gameManager.getPlayerView(session.game.id, socket.id);
+        callback({
+          success: true,
+          gameId: session.game.id,
+          playerId,
+          playerIndex,
+          view,
+          missingPlayers
+        });
+      } catch (error) {
+        callback({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Rejoin a resumed game
+    socket.on('game:rejoin', (data: { gameId: string; playerName: string }, callback) => {
+      try {
+        const result = gameManager.rejoinGame(data.gameId, socket.id, data.playerName);
+
+        if ('error' in result) {
+          callback({ success: false, error: result.error });
+          return;
+        }
+
+        const { session, playerId, playerIndex } = result;
+        socket.join(session.game.id);
+
+        // Notify other players
+        const rejoinEvent = { type: 'playerRejoined' as const, playerIndex, playerName: data.playerName };
+        socket.to(session.game.id).emit('game:event', rejoinEvent);
+
+        // Broadcast updated view to all
+        broadcastViewUpdate(io, gameManager, session.game.id);
+
+        const view = gameManager.getPlayerView(session.game.id, socket.id);
+        const missingPlayers = gameManager.getMissingPlayers(session.game.id);
+
+        callback({
+          success: true,
+          playerId,
+          playerIndex,
+          view,
+          missingPlayers,
+          allRejoined: gameManager.allPlayersRejoined(session.game.id)
+        });
+      } catch (error) {
+        callback({ success: false, error: (error as Error).message });
+      }
+    });
+
+    // Continue a resumed game (after all players rejoined or host decides to continue)
+    socket.on('game:continueResumed', (data: { gameId: string }, callback) => {
+      try {
+        const game = gameManager.continueResumedGame(data.gameId);
+        if (!game) {
+          callback({ success: false, error: 'Cannot continue game' });
+          return;
+        }
+
+        // Notify all players that game is resuming
+        io.to(data.gameId).emit('game:event', { type: 'gameResumed' as const });
+        broadcastViewUpdate(io, gameManager, data.gameId);
+
+        callback({ success: true });
+
+        // Check if AI needs to act
+        aiRunner.checkAndRunAI(data.gameId);
       } catch (error) {
         callback({ success: false, error: (error as Error).message });
       }

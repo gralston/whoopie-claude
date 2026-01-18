@@ -60,6 +60,8 @@ interface GameContextType {
   error: string | null;
   disconnectedPlayer: DisconnectedPlayer | null;
   wasKicked: boolean;
+  resumeCode: string | null;
+  missingPlayers: string[];
   createGame: (playerName: string) => Promise<string>;
   joinGame: (gameId: string, playerName: string) => Promise<void>;
   addAI: (difficulty: AIDifficulty) => Promise<void>;
@@ -70,9 +72,15 @@ interface GameContextType {
   kickPlayer: (targetPlayerId: string) => Promise<void>;
   replaceWithAI: (targetPlayerId: string) => Promise<void>;
   continueWithoutPlayer: (targetPlayerId: string) => Promise<void>;
+  pauseGame: () => Promise<string>;
+  checkResumeCode: (code: string) => Promise<{ valid: boolean; playerNames?: string[] }>;
+  resumeGame: (code: string, playerName: string) => Promise<string>;
+  rejoinGame: (gameId: string, playerName: string) => Promise<void>;
+  continueResumedGame: () => Promise<void>;
   clearDisconnectedPlayer: () => void;
   clearKicked: () => void;
   clearError: () => void;
+  clearResumeCode: () => void;
 }
 
 const GameContext = createContext<GameContextType | null>(null);
@@ -87,6 +95,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [disconnectedPlayer, setDisconnectedPlayer] = useState<DisconnectedPlayer | null>(null);
   const [wasKicked, setWasKicked] = useState(false);
+  const [resumeCode, setResumeCode] = useState<string | null>(null);
+  const [missingPlayers, setMissingPlayers] = useState<string[]>([]);
 
   // Listen for game events
   useEffect(() => {
@@ -94,6 +104,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     const handleEvent = (event: GameEvent) => {
       setEvents((prev) => [...prev, event]);
+
+      // Handle pause event
+      if (event.type === 'gamePaused') {
+        setResumeCode(event.resumeCode);
+      }
     };
 
     const handleState = (newView: PlayerView) => {
@@ -203,6 +218,62 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setDisconnectedPlayer(null);
   }, [emit, gameId]);
 
+  const pauseGame = useCallback(async (): Promise<string> => {
+    if (!gameId) throw new Error('Not in a game');
+    const response = await emit<{ resumeCode: string }>('game:pause', { gameId });
+    setResumeCode(response.resumeCode);
+    return response.resumeCode;
+  }, [emit, gameId]);
+
+  const checkResumeCode = useCallback(async (code: string): Promise<{ valid: boolean; playerNames?: string[] }> => {
+    const response = await emit<{ success: boolean; playerNames?: string[]; error?: string }>('game:checkResumeCode', { resumeCode: code });
+    if (!response.success) {
+      throw new Error(response.error || 'Invalid resume code');
+    }
+    return { valid: true, playerNames: response.playerNames };
+  }, [emit]);
+
+  const resumeGame = useCallback(async (code: string, name: string): Promise<string> => {
+    const response = await emit<{ gameId: string; playerId: string; view: PlayerView; missingPlayers: string[] }>('game:resume', {
+      resumeCode: code,
+      playerName: name,
+    });
+    setGameId(response.gameId);
+    setPlayerName(name);
+    setPlayerId(response.playerId);
+    setView(response.view);
+    setMissingPlayers(response.missingPlayers);
+    setEvents([]);
+    return response.gameId;
+  }, [emit]);
+
+  const rejoinGame = useCallback(async (id: string, name: string): Promise<void> => {
+    const response = await emit<{ playerId: string; view: PlayerView; missingPlayers: string[]; allRejoined: boolean }>('game:rejoin', {
+      gameId: id,
+      playerName: name,
+    });
+    setGameId(id);
+    setPlayerName(name);
+    setPlayerId(response.playerId);
+    setView(response.view);
+    setMissingPlayers(response.missingPlayers);
+    setEvents([]);
+  }, [emit]);
+
+  const continueResumedGame = useCallback(async (): Promise<void> => {
+    if (!gameId) throw new Error('Not in a game');
+    await emit('game:continueResumed', { gameId });
+    setMissingPlayers([]);
+  }, [emit, gameId]);
+
+  const clearResumeCode = useCallback(() => {
+    setResumeCode(null);
+    setGameId(null);
+    setPlayerId(null);
+    setView(null);
+    setEvents([]);
+  }, []);
+
   const clearDisconnectedPlayer = useCallback(() => {
     setDisconnectedPlayer(null);
   }, []);
@@ -226,6 +297,8 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         error,
         disconnectedPlayer,
         wasKicked,
+        resumeCode,
+        missingPlayers,
         createGame,
         joinGame,
         addAI,
@@ -236,9 +309,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
         kickPlayer,
         replaceWithAI,
         continueWithoutPlayer,
+        pauseGame,
+        checkResumeCode,
+        resumeGame,
+        rejoinGame,
+        continueResumedGame,
         clearDisconnectedPlayer,
         clearKicked,
         clearError,
+        clearResumeCode,
       }}
     >
       {children}

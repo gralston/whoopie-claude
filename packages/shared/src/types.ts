@@ -55,6 +55,7 @@ export type Player = HumanPlayer | AIPlayer;
 
 export type GamePhase =
   | 'waiting'      // Waiting for players to join
+  | 'resuming'     // Resuming a paused game, waiting for players to rejoin
   | 'cutting'      // Initial card cut to determine dealer/scorekeeper
   | 'dealing'      // Cards being dealt (for animation purposes)
   | 'bidding'      // Players placing bids
@@ -174,7 +175,11 @@ export interface CompletedStanzaRecord {
 export type GameEvent =
   | { type: 'playerJoined'; player: Player }
   | { type: 'playerLeft'; playerId: string; playerName?: string; replacement?: Player }
+  | { type: 'playerRejoined'; playerIndex: number; playerName: string } // Player rejoined a resumed game
   | { type: 'gameStarted' }
+  | { type: 'gamePaused'; resumeCode: string } // Game was paused
+  | { type: 'gameResuming'; playerNames: string[] } // Game is being resumed, waiting for players
+  | { type: 'gameResumed' } // Game resumed and continuing
   | { type: 'cutForDealer'; cutCards: Card[]; dealerIndex: number }
   | { type: 'stanzaStarted'; stanza: StanzaState }
   | { type: 'bidPlaced'; playerIndex: number; bid: number }

@@ -6,6 +6,7 @@ import Card, { MiniCard, MediumCard, CardBack } from '../components/Card';
 import RulesContent from '../components/RulesContent';
 import { HelpMenu } from '../components/HelpMenu';
 import { FeedbackModal } from '../components/FeedbackModal';
+import { PauseModal } from '../components/PauseModal';
 import { Card as CardType, cardsEqual, isWhoopieCard, isSuitCard, isJoker, Suit, RANK_VALUES } from '@whoopie/shared';
 
 const suitSymbols: Record<Suit, string> = {
@@ -66,6 +67,11 @@ export default function Game() {
     kickPlayer,
     replaceWithAI,
     continueWithoutPlayer,
+    pauseGame,
+    resumeCode,
+    clearResumeCode,
+    missingPlayers,
+    continueResumedGame,
     disconnectedPlayer,
     wasKicked,
     clearKicked,
@@ -419,6 +425,19 @@ export default function Game() {
     navigate('/');
   };
 
+  const handlePause = async () => {
+    try {
+      await pauseGame();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const handleClosePauseModal = () => {
+    clearResumeCode();
+    navigate('/');
+  };
+
   // Generate explanation for why a trick was won
   const generateTrickExplanation = (trick: CompletedTrickInfo): string => {
     if (!trick || trick.cards.length === 0) return '';
@@ -498,6 +517,161 @@ export default function Game() {
 
     return `${winnerName} won with the highest trump card.`;
   };
+
+  // Resuming lobby - waiting for players to rejoin
+  if (view.phase === 'resuming') {
+    const isHost = view.players[view.myIndex]?.id === view.hostId;
+    const connectedPlayers = view.players.filter(p => p.type === 'human' && p.isConnected);
+    const disconnectedPlayers = view.players.filter(p => p.type === 'human' && !p.isConnected);
+    const aiPlayers = view.players.filter(p => p.type === 'ai');
+
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center p-4">
+        <div className="max-w-md w-full bg-gray-800 rounded-xl p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h1 className="text-2xl font-bold text-white">Resuming Game</h1>
+            <HelpMenu
+              onShowRules={() => setShowRules(true)}
+              onShowFeedback={() => setShowFeedback(true)}
+            />
+          </div>
+
+          <p className="text-gray-300 mb-6">
+            Waiting for players to rejoin. Share the game ID with other players.
+          </p>
+
+          {/* Game ID */}
+          <div className="bg-gray-700 rounded-lg p-3 mb-6">
+            <p className="text-gray-400 text-sm">Game ID</p>
+            <p className="text-white font-mono text-sm break-all">{view.id}</p>
+          </div>
+
+          {/* Rejoined Players */}
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-white mb-3">
+              Rejoined ({connectedPlayers.length})
+            </h2>
+            <div className="space-y-2">
+              {connectedPlayers.map((player) => (
+                <div
+                  key={player.id}
+                  className="flex items-center justify-between bg-green-900/30 rounded-lg px-4 py-2"
+                >
+                  <span className="text-green-400">{player.name}</span>
+                  <span className="text-green-500 text-sm">Connected</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Waiting For */}
+          {disconnectedPlayers.length > 0 && (
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-white mb-3">
+                Waiting For ({disconnectedPlayers.length})
+              </h2>
+              <div className="space-y-2">
+                {disconnectedPlayers.map((player) => (
+                  <div
+                    key={player.id}
+                    className="flex items-center justify-between bg-yellow-900/30 rounded-lg px-4 py-2"
+                  >
+                    <span className="text-yellow-400">{player.name}</span>
+                    <span className="text-yellow-500 text-sm">Waiting...</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* AI Players */}
+          {aiPlayers.length > 0 && (
+            <div className="mb-6">
+              <h2 className="text-lg font-semibold text-white mb-3">
+                AI Players ({aiPlayers.length})
+              </h2>
+              <div className="space-y-2">
+                {aiPlayers.map((player) => (
+                  <div
+                    key={player.id}
+                    className="flex items-center justify-between bg-gray-700 rounded-lg px-4 py-2"
+                  >
+                    <span className="text-gray-300">{player.name}</span>
+                    <span className="text-gray-500 text-sm">AI</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          {isHost && (
+            <div className="space-y-3">
+              <button
+                onClick={async () => {
+                  try {
+                    await continueResumedGame();
+                  } catch (err) {
+                    setError((err as Error).message);
+                  }
+                }}
+                disabled={connectedPlayers.length < 2 && aiPlayers.length === 0}
+                className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition"
+              >
+                {disconnectedPlayers.length > 0
+                  ? `Continue Without Missing Players`
+                  : `Continue Game`}
+              </button>
+              {disconnectedPlayers.length > 0 && (
+                <p className="text-gray-400 text-sm text-center">
+                  Missing players will be removed from the game.
+                </p>
+              )}
+            </div>
+          )}
+
+          {!isHost && (
+            <p className="text-gray-400 text-center">
+              Waiting for the host to continue the game...
+            </p>
+          )}
+        </div>
+
+        {/* Rules Modal */}
+        <AnimatePresence>
+          {showRules && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+              onClick={() => setShowRules(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.8 }}
+                animate={{ scale: 1 }}
+                exit={{ scale: 0.8 }}
+                className="bg-gray-800 rounded-xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h2 className="text-2xl font-bold text-white mb-4">Whoopie Rules</h2>
+                <RulesContent />
+                <button
+                  onClick={() => setShowRules(false)}
+                  className="mt-6 w-full py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition"
+                >
+                  Got it!
+                </button>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Feedback Modal */}
+        <FeedbackModal isOpen={showFeedback} onClose={() => setShowFeedback(false)} />
+      </div>
+    );
+  }
 
   // Waiting room
   if (view.phase === 'waiting') {
@@ -688,6 +862,12 @@ export default function Game() {
             className="text-green-400 hover:text-green-300 text-sm transition"
           >
             Scoreboard
+          </button>
+          <button
+            onClick={handlePause}
+            className="text-yellow-400 hover:text-yellow-300 text-sm transition"
+          >
+            Pause Game
           </button>
           <HelpMenu
             onShowRules={() => setShowRules(true)}
@@ -1784,6 +1964,13 @@ export default function Game() {
 
       {/* Feedback Modal */}
       <FeedbackModal isOpen={showFeedback} onClose={() => setShowFeedback(false)} />
+
+      {/* Pause Modal */}
+      <AnimatePresence>
+        {resumeCode && (
+          <PauseModal resumeCode={resumeCode} onClose={handleClosePauseModal} />
+        )}
+      </AnimatePresence>
 
       {/* Error toast */}
       <AnimatePresence>

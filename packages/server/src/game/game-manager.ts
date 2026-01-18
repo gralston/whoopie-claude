@@ -532,4 +532,176 @@ export class GameManager {
 
     return null;
   }
+
+  // Pause a game - returns the game state to be saved
+  pauseGame(gameId: string): { gameState: GameState; socketIds: string[] } | null {
+    const session = this.games.get(gameId);
+    if (!session) {
+      return null;
+    }
+
+    // Get all connected socket IDs to notify them
+    const socketIds = Array.from(session.playerSockets.values());
+
+    // Store the game state before removing
+    const gameState = { ...session.game };
+
+    // Clean up socket mappings
+    for (const socketId of socketIds) {
+      this.socketToGame.delete(socketId);
+      this.socketToPlayer.delete(socketId);
+    }
+
+    // Remove game from active games
+    this.games.delete(gameId);
+
+    return { gameState, socketIds };
+  }
+
+  // Resume a game from saved state
+  resumeGame(
+    gameState: GameState,
+    originalPlayerNames: string[],
+    hostSocketId: string,
+    hostName: string
+  ): { session: GameSession; playerId: string; playerIndex: number } | { error: string } {
+    // Find the player slot matching this name
+    const playerIndex = gameState.players.findIndex(
+      p => p.type === 'human' && p.name.toLowerCase() === hostName.toLowerCase()
+    );
+
+    if (playerIndex === -1) {
+      // Check if name was in original player list
+      const wasOriginalPlayer = originalPlayerNames.some(
+        n => n.toLowerCase() === hostName.toLowerCase()
+      );
+      if (!wasOriginalPlayer) {
+        return { error: 'Your name was not in the original game. Please use the same name you played with.' };
+      }
+      return { error: 'Could not find your player slot' };
+    }
+
+    const player = gameState.players[playerIndex] as HumanPlayer;
+    const playerId = player.id;
+
+    // Store the phase the game was in before pausing
+    const previousPhase = gameState.phase;
+
+    // Create new session with game in resuming state
+    const resumingGame: GameState = {
+      ...gameState,
+      id: uuidv4(), // New game ID for the resumed session
+      phase: 'resuming',
+    };
+
+    // Store the previous phase so we can restore it
+    (resumingGame as GameState & { previousPhase: string }).previousPhase = previousPhase;
+
+    // Mark all human players as disconnected initially
+    resumingGame.players = resumingGame.players.map(p => {
+      if (p.type === 'human') {
+        return { ...p, isConnected: false };
+      }
+      return p;
+    });
+
+    // Mark the rejoining player as connected
+    (resumingGame.players[playerIndex] as HumanPlayer).isConnected = true;
+
+    const session: GameSession = {
+      game: resumingGame,
+      playerSockets: new Map([[playerId, hostSocketId]]),
+      spectatorSockets: new Set(),
+    };
+
+    this.games.set(resumingGame.id, session);
+    this.socketToGame.set(hostSocketId, resumingGame.id);
+    this.socketToPlayer.set(hostSocketId, playerId);
+
+    // Update the hostId to the first rejoining player
+    session.game.hostId = playerId;
+
+    return { session, playerId, playerIndex };
+  }
+
+  // Rejoin a resumed game by name
+  rejoinGame(
+    gameId: string,
+    socketId: string,
+    playerName: string
+  ): { session: GameSession; playerId: string; playerIndex: number } | { error: string } {
+    const session = this.games.get(gameId);
+    if (!session) {
+      return { error: 'Game not found' };
+    }
+
+    if (session.game.phase !== 'resuming') {
+      return { error: 'Game is not in resuming state' };
+    }
+
+    // Find the player slot matching this name
+    const playerIndex = session.game.players.findIndex(
+      p => p.type === 'human' && p.name.toLowerCase() === playerName.toLowerCase()
+    );
+
+    if (playerIndex === -1) {
+      return { error: 'No player with that name in this game' };
+    }
+
+    const player = session.game.players[playerIndex] as HumanPlayer;
+
+    if (player.isConnected) {
+      return { error: 'A player with that name has already rejoined' };
+    }
+
+    // Mark as connected
+    (session.game.players[playerIndex] as HumanPlayer).isConnected = true;
+
+    const playerId = player.id;
+    session.playerSockets.set(playerId, socketId);
+    this.socketToGame.set(socketId, gameId);
+    this.socketToPlayer.set(socketId, playerId);
+
+    return { session, playerId, playerIndex };
+  }
+
+  // Check if all human players have rejoined
+  allPlayersRejoined(gameId: string): boolean {
+    const session = this.games.get(gameId);
+    if (!session) return false;
+
+    return session.game.players
+      .filter(p => p.type === 'human')
+      .every(p => (p as HumanPlayer).isConnected);
+  }
+
+  // Continue a resumed game (transition back to playing state)
+  continueResumedGame(gameId: string): GameState | null {
+    const session = this.games.get(gameId);
+    if (!session || session.game.phase !== 'resuming') {
+      return null;
+    }
+
+    // Restore the previous phase
+    const previousPhase = (session.game as GameState & { previousPhase?: string }).previousPhase;
+    if (previousPhase) {
+      session.game.phase = previousPhase as GameState['phase'];
+      delete (session.game as GameState & { previousPhase?: string }).previousPhase;
+    } else {
+      // Fallback to bidding if we don't know the previous phase
+      session.game.phase = 'bidding';
+    }
+
+    return session.game;
+  }
+
+  // Get list of players who haven't rejoined yet
+  getMissingPlayers(gameId: string): string[] {
+    const session = this.games.get(gameId);
+    if (!session) return [];
+
+    return session.game.players
+      .filter(p => p.type === 'human' && !(p as HumanPlayer).isConnected)
+      .map(p => p.name);
+  }
 }

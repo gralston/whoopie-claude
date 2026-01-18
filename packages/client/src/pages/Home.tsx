@@ -10,10 +10,11 @@ import { FeedbackModal } from '../components/FeedbackModal';
 export default function Home() {
   const navigate = useNavigate();
   const { isConnected } = useSocket();
-  const { createGame, joinGame } = useGame();
+  const { createGame, joinGame, resumeGame } = useGame();
   const [playerName, setPlayerName] = useState('');
   const [joinGameId, setJoinGameId] = useState('');
-  const [mode, setMode] = useState<'home' | 'create' | 'join'>('home');
+  const [resumeCodeInput, setResumeCodeInput] = useState('');
+  const [mode, setMode] = useState<'home' | 'create' | 'join' | 'resume'>('home');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showRules, setShowRules] = useState(false);
@@ -54,6 +55,29 @@ export default function Home() {
     try {
       await joinGame(joinGameId.trim(), playerName.trim());
       navigate(`/game/${joinGameId.trim()}`);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResume = async () => {
+    if (!playerName.trim()) {
+      setError('Please enter your name');
+      return;
+    }
+    if (!resumeCodeInput.trim()) {
+      setError('Please enter resume code');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const gameId = await resumeGame(resumeCodeInput.trim(), playerName.trim());
+      navigate(`/game/${gameId}`);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -108,6 +132,13 @@ export default function Home() {
                 className="w-full py-4 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg font-semibold text-lg transition"
               >
                 Browse Games
+              </button>
+              <button
+                onClick={() => setMode('resume')}
+                disabled={!isConnected}
+                className="w-full py-4 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg font-semibold text-lg transition"
+              >
+                Resume Game
               </button>
             </div>
           )}
@@ -180,6 +211,50 @@ export default function Home() {
                   className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 text-white rounded-lg font-semibold transition"
                 >
                   {loading ? 'Joining...' : 'Join'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {mode === 'resume' && (
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold text-white mb-4">Resume Game</h2>
+              <p className="text-gray-400 text-sm mb-2">
+                Enter the 4-character code you received when the game was paused.
+              </p>
+              <input
+                type="text"
+                placeholder="Your name (must match original)"
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                className="w-full p-3 bg-gray-700 text-white rounded-lg border border-gray-600 focus:border-yellow-500 focus:outline-none"
+                maxLength={20}
+              />
+              <input
+                type="text"
+                placeholder="Resume code (e.g., 7X3K)"
+                value={resumeCodeInput}
+                onChange={(e) => setResumeCodeInput(e.target.value.toUpperCase())}
+                className="w-full p-3 bg-gray-700 text-white rounded-lg border border-gray-600 focus:border-yellow-500 focus:outline-none font-mono text-center text-xl tracking-widest"
+                maxLength={4}
+              />
+              {error && <p className="text-red-400 text-sm">{error}</p>}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => {
+                    setMode('home');
+                    setError(null);
+                  }}
+                  className="flex-1 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-semibold transition"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleResume}
+                  disabled={loading || !isConnected}
+                  className="flex-1 py-3 bg-yellow-600 hover:bg-yellow-700 disabled:bg-gray-600 text-white rounded-lg font-semibold transition"
+                >
+                  {loading ? 'Resuming...' : 'Resume'}
                 </button>
               </div>
             </div>
