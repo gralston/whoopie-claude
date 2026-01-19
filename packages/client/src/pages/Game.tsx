@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useGame } from '../context/GameContext';
-import Card, { MiniCard, MediumCard, CardBack } from '../components/Card';
+import Card, { MiniCard, MediumCard, CardBack, TrickCard } from '../components/Card';
 import RulesContent from '../components/RulesContent';
 import { HelpMenu } from '../components/HelpMenu';
 import { FeedbackModal } from '../components/FeedbackModal';
@@ -1203,6 +1203,9 @@ export default function Game() {
                   const numCards = view.stanza!.currentTrick.length;
                   const centerOffset = (index - (numCards - 1) / 2);
 
+                  // Spacing between cards scales with player count (larger cards = more space)
+                  const cardSpacing = numPlayers <= 4 ? 75 : numPlayers <= 6 ? 65 : numPlayers <= 8 ? 55 : 45;
+
                   // Determine if we're in the completion animation phase
                   const isCompletionPhase = trickAnimPhase === 'complete' || trickAnimPhase === 'collecting';
                   const winnerIndex = completedTrick?.winnerIndex;
@@ -1210,7 +1213,7 @@ export default function Game() {
                   const isWinnerMe = winnerIndex === view.myIndex;
 
                   // Calculate animation targets based on phase
-                  let targetX = centerOffset * 55; // Default spread position
+                  let targetX = centerOffset * cardSpacing; // Default spread position
                   let targetY = 0;
                   let targetScale = 1;
                   let targetOpacity = 1;
@@ -1291,13 +1294,13 @@ export default function Game() {
                       className="relative"
                       style={{ zIndex: index }}
                     >
-                      <div className={showWinnerHighlight ? 'ring-4 ring-yellow-400 rounded-lg' : ''}>
-                        <MiniCard card={played.card} highlight={showWinnerHighlight} />
-                      </div>
+                      <TrickCard card={played.card} highlight={showWinnerHighlight} playerCount={numPlayers} />
                       {(() => {
                         const { initials, colorClass } = getPlayerDisplay(view.players, played.playerIndex, view.myIndex);
+                        // Adjust label position based on card size
+                        const labelOffset = numPlayers <= 4 ? '-bottom-6' : numPlayers <= 6 ? '-bottom-5' : '-bottom-4';
                         return (
-                          <p className={`absolute -bottom-5 left-1/2 -translate-x-1/2 text-xs font-bold whitespace-nowrap ${showWinnerHighlight ? 'text-yellow-400' : colorClass}`}>
+                          <p className={`absolute ${labelOffset} left-1/2 -translate-x-1/2 text-xs font-bold whitespace-nowrap ${showWinnerHighlight ? 'text-yellow-400' : colorClass}`}>
                             {initials}
                           </p>
                         );
@@ -1612,9 +1615,7 @@ export default function Game() {
                       }`}>
                         {playOrder}
                       </div>
-                      <div className={`${isWinner ? 'ring-4 ring-yellow-400 rounded-lg' : ''}`}>
-                        <MiniCard card={played.card} highlight={isWinner} />
-                      </div>
+                      <MediumCard card={played.card} highlight={isWinner} />
                     </div>
                     {isWinner && (
                       <span className="mt-1 text-xs bg-yellow-500 text-black px-2 py-0.5 rounded font-bold">

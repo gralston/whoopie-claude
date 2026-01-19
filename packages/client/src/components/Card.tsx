@@ -131,6 +131,58 @@ export function MiniCard({ card, highlight = false }: { card: CardType; highligh
   );
 }
 
+// Trick card - scales based on player count for optimal visibility
+export function TrickCard({
+  card,
+  highlight = false,
+  playerCount
+}: {
+  card: CardType;
+  highlight?: boolean;
+  playerCount: number;
+}) {
+  const svgPath = getCardSvgPath(card);
+  const altText = isJoker(card)
+    ? `Joker ${card.jokerNumber}`
+    : isSuitCard(card)
+      ? `${card.rank} of ${card.suit}`
+      : 'Card';
+
+  // Scale card size based on player count
+  // 2-4 players: large, 5-6: medium-large, 7-8: medium, 9-10: small
+  let sizeClasses: string;
+  let ringSize: string;
+
+  if (playerCount <= 4) {
+    sizeClasses = 'w-16 h-24'; // 64x96px
+    ringSize = 'ring-4';
+  } else if (playerCount <= 6) {
+    sizeClasses = 'w-14 h-[84px]'; // 56x84px
+    ringSize = 'ring-4';
+  } else if (playerCount <= 8) {
+    sizeClasses = 'w-11 h-[66px]'; // 44x66px
+    ringSize = 'ring-2';
+  } else {
+    sizeClasses = 'w-9 h-[54px]'; // 36x54px
+    ringSize = 'ring-2';
+  }
+
+  return (
+    <div
+      className={`${sizeClasses} rounded-lg overflow-hidden ${
+        highlight ? `${ringSize} ring-yellow-400` : ''
+      } card-shadow`}
+    >
+      <img
+        src={svgPath}
+        alt={altText}
+        className="w-full h-full object-cover"
+        draggable={false}
+      />
+    </div>
+  );
+}
+
 // Medium card for Whoopie defining card display
 export function MediumCard({ card, highlight = false }: { card: CardType; highlight?: boolean }) {
   const svgPath = getCardSvgPath(card);
