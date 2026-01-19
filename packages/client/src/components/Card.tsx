@@ -154,16 +154,16 @@ export function TrickCard({
   let ringSize: string;
 
   if (playerCount <= 4) {
-    sizeClasses = 'w-16 h-24'; // 64x96px
+    sizeClasses = 'w-20 h-[120px]'; // 80x120px - large
     ringSize = 'ring-4';
   } else if (playerCount <= 6) {
-    sizeClasses = 'w-14 h-[84px]'; // 56x84px
+    sizeClasses = 'w-16 h-24'; // 64x96px
     ringSize = 'ring-4';
   } else if (playerCount <= 8) {
-    sizeClasses = 'w-11 h-[66px]'; // 44x66px
+    sizeClasses = 'w-14 h-[84px]'; // 56x84px
     ringSize = 'ring-2';
   } else {
-    sizeClasses = 'w-9 h-[54px]'; // 36x54px
+    sizeClasses = 'w-11 h-[66px]'; // 44x66px
     ringSize = 'ring-2';
   }
 
