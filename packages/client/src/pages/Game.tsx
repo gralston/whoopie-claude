@@ -1204,7 +1204,7 @@ export default function Game() {
                   const centerOffset = (index - (numCards - 1) / 2);
 
                   // Spacing between cards scales with player count (larger cards = more space)
-                  const cardSpacing = numPlayers <= 4 ? 30 : numPlayers <= 6 ? 25 : numPlayers <= 8 ? 22 : 18;
+                  const cardSpacing = numPlayers <= 4 ? 20 : numPlayers <= 6 ? 18 : numPlayers <= 8 ? 15 : 12;
 
                   // Determine if we're in the completion animation phase
                   const isCompletionPhase = trickAnimPhase === 'complete' || trickAnimPhase === 'collecting';
