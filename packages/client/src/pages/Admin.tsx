@@ -135,12 +135,16 @@ export default function Admin() {
         {/* Stats Grid */}
         {stats && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <StatCard label="Total Games" value={stats.totalGames} />
+            <StatCard label="Total Games Started" value={stats.totalGamesStarted} />
             <StatCard label="Games Today" value={stats.gamesToday} color="blue" />
             <StatCard label="Completed" value={stats.gamesCompleted} color="green" />
-            <StatCard label="In Progress" value={stats.gamesInProgress} color="yellow" />
             <StatCard label="Abandoned" value={stats.gamesAbandoned} color="red" />
+            <StatCard label="In Progress" value={stats.gamesInProgress} color="yellow" />
             <StatCard label="Completed Today" value={stats.gamesCompletedToday} color="green" />
+            <StatCard label="Abandoned Today" value={stats.gamesAbandonedToday} color="red" />
+            <StatCard label="Waiting (Not Started)" value={stats.gamesCreatedNotStarted} color="gray" />
+            <StatCard label="Human Players Today" value={stats.humanPlayersToday} color="blue" />
+            <StatCard label="AI Players Today" value={stats.aiPlayersToday} color="purple" />
             <StatCard label="Max Concurrent" value={stats.maxConcurrentPlayers} color="purple" />
             <StatCard label="Current Connections" value={stats.currentConnections} color="blue" />
           </div>

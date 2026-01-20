@@ -231,7 +231,7 @@ export class GameManager {
     return { session, events: [] };
   }
 
-  leaveGame(socketId: string): { gameId: string; event: GameEvent; needsHostDecision?: boolean; leavingPlayerId?: string; leavingPlayerName?: string } | null {
+  leaveGame(socketId: string): { gameId: string; event: GameEvent; needsHostDecision?: boolean; leavingPlayerId?: string; leavingPlayerName?: string; gameAbandoned?: boolean; gameWasInProgress?: boolean } | null {
     const gameId = this.socketToGame.get(socketId);
     const playerId = this.socketToPlayer.get(socketId);
 
@@ -269,7 +269,7 @@ export class GameManager {
         this.games.delete(gameId);
       }
 
-      return { gameId, event };
+      return { gameId, event, gameWasInProgress: false };
     }
 
     // Game in progress - mark player as disconnected but keep them in the game
@@ -301,12 +301,30 @@ export class GameManager {
       }
     }
 
+    // Check if all human players are now disconnected
+    const connectedHumans = session.game.players.filter(
+      p => p.type === 'human' && (p as HumanPlayer).isConnected
+    );
+    const gameAbandoned = connectedHumans.length === 0;
+
+    // If abandoned, clean up the game
+    if (gameAbandoned) {
+      // Clean up all socket mappings for this game
+      for (const [pid, sid] of session.playerSockets) {
+        this.socketToGame.delete(sid);
+        this.socketToPlayer.delete(sid);
+      }
+      this.games.delete(gameId);
+    }
+
     return {
       gameId,
       event: { type: 'playerLeft', playerId, playerName: leavingPlayerName },
-      needsHostDecision: true, // Always true here since 'waiting' phase returns early above
+      needsHostDecision: !gameAbandoned, // Only need decision if game isn't abandoned
       leavingPlayerId: playerId,
-      leavingPlayerName
+      leavingPlayerName,
+      gameAbandoned,
+      gameWasInProgress: true
     };
   }
 

@@ -126,8 +126,10 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
       try {
         const { session, events } = gameManager.startGame(data.gameId, socket.id);
 
-        // Track game started
-        recordGameStarted(session.game.id);
+        // Track game started with player counts
+        const humanCount = session.game.players.filter(p => p.type === 'human').length;
+        const aiCount = session.game.players.filter(p => p.type === 'ai').length;
+        recordGameStarted(session.game.id, humanCount + aiCount, aiCount);
 
         // Broadcast events
         for (const event of events) {
@@ -490,6 +492,11 @@ function handleLeave(socket: Socket, io: Server, gameManager: GameManager, aiRun
     broadcastViewUpdate(io, gameManager, result.gameId);
     socket.leave(result.gameId);
 
+    // Track abandoned games
+    if (result.gameAbandoned && result.gameWasInProgress) {
+      recordGameAbandoned(result.gameId);
+    }
+
     // If game is in progress and host needs to decide what to do with the player
     if (result.needsHostDecision && result.leavingPlayerId && result.leavingPlayerName) {
       const hostSocketId = findHostSocketId(gameManager, result.gameId);
@@ -502,7 +509,7 @@ function handleLeave(socket: Socket, io: Server, gameManager: GameManager, aiRun
     }
 
     // Check if AI needs to act after a player leaves
-    if (aiRunner) {
+    if (aiRunner && !result.gameAbandoned) {
       aiRunner.checkAndRunAI(result.gameId);
     }
   }

@@ -20,13 +20,16 @@ export async function submitFeedback(
 
 // Admin API functions
 export async function getAdminStats(adminKey: string): Promise<{
-  totalGames: number;
-  gamesCreated: number;
+  totalGamesStarted: number;
+  gamesCreatedNotStarted: number;
   gamesInProgress: number;
   gamesCompleted: number;
   gamesAbandoned: number;
   gamesToday: number;
   gamesCompletedToday: number;
+  gamesAbandonedToday: number;
+  humanPlayersToday: number;
+  aiPlayersToday: number;
   maxConcurrentPlayers: number;
   currentConnections: number;
 } | null> {
