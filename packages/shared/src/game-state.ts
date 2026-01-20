@@ -786,7 +786,7 @@ function completeStanza(
 }
 
 /**
- * Start the next stanza after viewing results
+ * Start the next stanza after viewing results, or end the game if we've completed a full cycle
  */
 export function continueToNextStanza(game: GameState): { game: GameState; events: GameEvent[] } {
   if (game.phase !== 'stanzaEnd') {
@@ -795,6 +795,12 @@ export function continueToNextStanza(game: GameState): { game: GameState; events
 
   if (!game.stanza) {
     throw new Error('No stanza data');
+  }
+
+  // Check if we've completed a full cycle (went up to max and back down to 1)
+  // Game ends when we finish a stanza at 1 card while going down
+  if (game.stanza.cardsPerPlayer === 1 && game.stanza.direction === 'down') {
+    return endGame(game);
   }
 
   // Calculate next stanza parameters

@@ -904,27 +904,27 @@ export default function Game() {
             onClick={handleLeave}
             className="text-gray-400 hover:text-white text-sm transition"
           >
-            Leave Game
+            Leave
           </button>
           {lastTrickForReview && (
             <button
               onClick={() => setShowTrickReview(true)}
               className="text-blue-400 hover:text-blue-300 text-sm transition"
             >
-              Review Last Trick
+              Last Trick
             </button>
           )}
           <button
             onClick={() => setShowScoreboard(true)}
             className="text-green-400 hover:text-green-300 text-sm transition"
           >
-            Scoreboard
+            Score
           </button>
           <button
             onClick={handlePause}
             className="text-yellow-400 hover:text-yellow-300 text-sm transition"
           >
-            Pause Game
+            Pause
           </button>
           <HelpMenu
             onShowRules={() => setShowRules(true)}
@@ -934,6 +934,14 @@ export default function Game() {
         <div className="flex items-center gap-4">
           <div className="text-white text-sm">
             Stanza {view.stanza?.stanzaNumber} | {view.stanza?.cardsPerPlayer} cards
+            {/* Show bid total vs stanza when all bids are in */}
+            {view.stanza?.bids && view.stanza.bids.every(b => b !== null) && (() => {
+              const totalBids = view.stanza.bids.reduce((sum, b) => sum + (b ?? 0), 0);
+              const diff = totalBids - view.stanza.cardsPerPlayer;
+              const sign = diff > 0 ? '+' : '';
+              const color = diff === 0 ? 'text-yellow-400' : diff > 0 ? 'text-green-400' : 'text-red-400';
+              return <span className={`ml-2 ${color}`}>({sign}{diff})</span>;
+            })()}
           </div>
           {/* Leader indicator */}
           {(() => {
