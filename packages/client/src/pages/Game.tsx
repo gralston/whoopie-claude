@@ -911,7 +911,7 @@ export default function Game() {
               onClick={() => setShowTrickReview(true)}
               className="text-blue-400 hover:text-blue-300 text-sm transition"
             >
-              Last Trick
+              Review
             </button>
           )}
           <button
@@ -934,9 +934,9 @@ export default function Game() {
         <div className="flex items-center gap-4">
           <div className="text-white text-sm">
             Stanza {view.stanza?.stanzaNumber} | {view.stanza?.cardsPerPlayer} cards
-            {/* Show bid total vs stanza when all bids are in */}
-            {view.stanza?.bids && view.stanza.bids.every(b => b !== null) && (() => {
-              const totalBids = view.stanza.bids.reduce((sum, b) => sum + (b ?? 0), 0);
+            {/* Show bid total vs stanza - updates after each bid */}
+            {view.stanza?.bids && view.stanza.bids.some(b => b !== null) && (() => {
+              const totalBids = view.stanza.bids.filter((b): b is number => b !== null).reduce((sum, b) => sum + b, 0);
               const diff = totalBids - view.stanza.cardsPerPlayer;
               const sign = diff > 0 ? '+' : '';
               const color = diff === 0 ? 'text-yellow-400' : diff > 0 ? 'text-green-400' : 'text-red-400';
