@@ -46,8 +46,9 @@ export default function RulesContent() {
       </section>
 
       <section>
-        <h3 className="text-yellow-400 font-semibold mb-1">J-Trump (Joker Rules)</h3>
-        <p className="mb-1">Jokers are always trump. Special situations:</p>
+        <h3 className="text-yellow-400 font-semibold mb-1">Jokers (Scramble Cards)</h3>
+        <p className="mb-2">Jokers are always trump and <span className="text-white font-medium">take on the Whoopie rank</span> when played. For example: if the Whoopie card is a Jack of Hearts, a Joker becomes the Jack of trump when played.</p>
+        <p className="mb-1">Special situations:</p>
         <ul className="list-disc list-inside space-y-1">
           <li><span className="text-purple-400">Joker played mid-trick:</span> The LED suit becomes trump for the rest of that trick (subsequent plays only). J-Trump then persists: whatever suit is led becomes trump FOR THAT TRICK until a Whoopie card is played.</li>
           <li><span className="text-purple-400">Joker is led:</span> ALL cards become trump. Highest card wins.</li>
