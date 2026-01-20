@@ -134,20 +134,71 @@ export default function Admin() {
 
         {/* Stats Grid */}
         {stats && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            <StatCard label="Total Games Started" value={stats.totalGamesStarted} />
-            <StatCard label="Games Today" value={stats.gamesToday} color="blue" />
-            <StatCard label="Completed" value={stats.gamesCompleted} color="green" />
-            <StatCard label="Abandoned" value={stats.gamesAbandoned} color="red" />
-            <StatCard label="In Progress" value={stats.gamesInProgress} color="yellow" />
-            <StatCard label="Completed Today" value={stats.gamesCompletedToday} color="green" />
-            <StatCard label="Abandoned Today" value={stats.gamesAbandonedToday} color="red" />
-            <StatCard label="Waiting (Not Started)" value={stats.gamesCreatedNotStarted} color="gray" />
-            <StatCard label="Human Players Today" value={stats.humanPlayersToday} color="blue" />
-            <StatCard label="AI Players Today" value={stats.aiPlayersToday} color="purple" />
-            <StatCard label="Max Concurrent" value={stats.maxConcurrentPlayers} color="purple" />
-            <StatCard label="Current Connections" value={stats.currentConnections} color="blue" />
-          </div>
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <StatCard label="Total Games Started" value={stats.totalGamesStarted} />
+              <StatCard label="Games Today" value={stats.gamesToday} color="blue" />
+              <StatCard label="Completed" value={stats.gamesCompleted} color="green" />
+              <StatCard label="Abandoned" value={stats.gamesAbandoned} color="red" />
+              <StatCard label="In Progress" value={stats.gamesInProgress} color="yellow" />
+              <StatCard label="Completed Today" value={stats.gamesCompletedToday} color="green" />
+              <StatCard label="Abandoned Today" value={stats.gamesAbandonedToday} color="red" />
+              <StatCard label="Waiting (Not Started)" value={stats.gamesCreatedNotStarted} color="gray" />
+              <StatCard label="Human Players Today" value={stats.humanPlayersToday} color="blue" />
+              <StatCard label="AI Players Today" value={stats.aiPlayersToday} color="purple" />
+              <StatCard label="Max Concurrent" value={stats.maxConcurrentPlayers} color="purple" />
+              <StatCard label="Current Connections" value={stats.currentConnections} color="blue" />
+            </div>
+
+            {/* Calculated Stats */}
+            <h2 className="text-lg font-semibold text-white mb-3">Calculated Statistics</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <StatCardText
+                label="Avg Game Duration"
+                value={stats.avgGameDurationMinutes !== null ? `${stats.avgGameDurationMinutes} min` : '—'}
+                color="blue"
+              />
+              <StatCardText
+                label="Completion Rate"
+                value={stats.completionRate !== null ? `${stats.completionRate}%` : '—'}
+                color="green"
+              />
+              <StatCardText
+                label="Avg Players/Game"
+                value={stats.avgPlayersPerGame !== null ? stats.avgPlayersPerGame.toString() : '—'}
+                color="purple"
+              />
+              <StatCardText
+                label="Peak Hour (UTC)"
+                value={stats.peakHour !== null ? `${stats.peakHour}:00 (${stats.peakHourGames} games)` : '—'}
+                color="yellow"
+              />
+              <StatCardText
+                label="Avg Stanzas/Game"
+                value={stats.avgStanzasPerGame !== null ? stats.avgStanzasPerGame.toString() : '—'}
+                color="blue"
+              />
+              <StatCard label="Whoopie Calls" value={stats.totalWhoopiesCalled} color="green" />
+              <StatCard label="Whoopie Misses" value={stats.totalWhoopieMisses} color="red" />
+            </div>
+
+            {/* Games by Player Count */}
+            {Object.keys(stats.gamesByPlayerCount).length > 0 && (
+              <>
+                <h2 className="text-lg font-semibold text-white mb-3">Games by Player Count</h2>
+                <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mb-8">
+                  {Object.entries(stats.gamesByPlayerCount)
+                    .sort(([a], [b]) => parseInt(a) - parseInt(b))
+                    .map(([count, games]) => (
+                      <div key={count} className="bg-gray-700 rounded-lg p-3 text-center">
+                        <p className="text-gray-400 text-xs">{count} players</p>
+                        <p className="text-lg font-bold text-white">{games}</p>
+                      </div>
+                    ))}
+                </div>
+              </>
+            )}
+          </>
         )}
 
         {/* Feedback Section */}
@@ -260,6 +311,24 @@ export default function Admin() {
 }
 
 function StatCard({ label, value, color = 'gray' }: { label: string; value: number; color?: string }) {
+  const bgColors: Record<string, string> = {
+    gray: 'bg-gray-700',
+    blue: 'bg-blue-900/50',
+    green: 'bg-green-900/50',
+    yellow: 'bg-yellow-900/50',
+    red: 'bg-red-900/50',
+    purple: 'bg-purple-900/50',
+  };
+
+  return (
+    <div className={`${bgColors[color]} rounded-xl p-4`}>
+      <p className="text-gray-400 text-sm">{label}</p>
+      <p className="text-2xl font-bold text-white">{value}</p>
+    </div>
+  );
+}
+
+function StatCardText({ label, value, color = 'gray' }: { label: string; value: string; color?: string }) {
   const bgColors: Record<string, string> = {
     gray: 'bg-gray-700',
     blue: 'bg-blue-900/50',

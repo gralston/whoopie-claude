@@ -7,7 +7,9 @@ import {
   recordGameStarted,
   recordGameCompleted,
   recordGameAbandoned,
-  updateGamePlayerCount
+  updateGamePlayerCount,
+  recordWhoopieCall,
+  recordWhoopieMiss
 } from './services/stats.js';
 import { saveGameState, loadGameState, checkResumeCode } from './services/pause.js';
 
@@ -180,6 +182,15 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
           data.calledWhoopie
         );
 
+        // Track Whoopie calls and misses from events
+        for (const event of events) {
+          if (event.type === 'cardPlayed' && event.wasWhoopie && data.calledWhoopie) {
+            recordWhoopieCall(data.gameId);
+          } else if (event.type === 'whoopieCallMissed') {
+            recordWhoopieMiss(data.gameId);
+          }
+        }
+
         // Broadcast events
         for (const event of events) {
           io.to(session.game.id).emit('game:event', event);
@@ -190,9 +201,10 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
 
         callback({ success: true });
 
-        // Track game completion
+        // Track game completion with stanza count
         if (session.game.phase === 'gameEnd') {
-          recordGameCompleted(session.game.id);
+          const stanzasPlayed = session.game.completedStanzas?.length || 0;
+          recordGameCompleted(session.game.id, stanzasPlayed);
         }
 
         // Handle phase transitions
@@ -218,7 +230,8 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
             // Check if game ended after stanza transition
             const updatedSession = gameManager.getSession(data.gameId);
             if (updatedSession?.game.phase === 'gameEnd') {
-              recordGameCompleted(data.gameId);
+              const stanzasPlayed = updatedSession.game.completedStanzas?.length || 0;
+              recordGameCompleted(data.gameId, stanzasPlayed);
             }
 
             aiRunner.checkAndRunAI(data.gameId);

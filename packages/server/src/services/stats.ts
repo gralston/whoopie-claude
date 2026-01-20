@@ -117,7 +117,10 @@ export async function recordGameStarted(
   }
 }
 
-export async function recordGameCompleted(gameId: string): Promise<void> {
+export async function recordGameCompleted(
+  gameId: string,
+  stanzasPlayed: number = 0
+): Promise<void> {
   if (!isSupabaseConfigured() || !supabase) return;
 
   try {
@@ -125,7 +128,8 @@ export async function recordGameCompleted(gameId: string): Promise<void> {
       .from('game_statistics')
       .update({
         status: 'completed',
-        completed_at: new Date().toISOString()
+        completed_at: new Date().toISOString(),
+        stanzas_played: stanzasPlayed
       })
       .eq('game_id', gameId);
 
@@ -138,7 +142,7 @@ export async function recordGameCompleted(gameId: string): Promise<void> {
     const today = getToday();
     await incrementDailyStat(today, 'games_completed');
 
-    console.log(`Game completed recorded: ${gameId}`);
+    console.log(`Game completed recorded: ${gameId} with ${stanzasPlayed} stanzas`);
   } catch (error) {
     console.error('Failed to record game completed:', error);
   }
@@ -196,6 +200,66 @@ export async function updateGamePlayerCount(
   }
 }
 
+export async function recordWhoopieCall(gameId: string): Promise<void> {
+  if (!isSupabaseConfigured() || !supabase) return;
+
+  try {
+    // Get current count and increment
+    const { data, error: selectError } = await supabase
+      .from('game_statistics')
+      .select('whoopie_calls')
+      .eq('game_id', gameId)
+      .single();
+
+    if (selectError) {
+      console.error('Failed to get whoopie_calls:', selectError.message);
+      return;
+    }
+
+    const currentCalls = data?.whoopie_calls || 0;
+    const { error } = await supabase
+      .from('game_statistics')
+      .update({ whoopie_calls: currentCalls + 1 })
+      .eq('game_id', gameId);
+
+    if (error) {
+      console.error('Failed to record Whoopie call:', error.message);
+    }
+  } catch (error) {
+    console.error('Failed to record Whoopie call:', error);
+  }
+}
+
+export async function recordWhoopieMiss(gameId: string): Promise<void> {
+  if (!isSupabaseConfigured() || !supabase) return;
+
+  try {
+    // Get current count and increment
+    const { data, error: selectError } = await supabase
+      .from('game_statistics')
+      .select('whoopie_misses')
+      .eq('game_id', gameId)
+      .single();
+
+    if (selectError) {
+      console.error('Failed to get whoopie_misses:', selectError.message);
+      return;
+    }
+
+    const currentMisses = data?.whoopie_misses || 0;
+    const { error } = await supabase
+      .from('game_statistics')
+      .update({ whoopie_misses: currentMisses + 1 })
+      .eq('game_id', gameId);
+
+    if (error) {
+      console.error('Failed to record Whoopie miss:', error.message);
+    }
+  } catch (error) {
+    console.error('Failed to record Whoopie miss:', error);
+  }
+}
+
 async function incrementDailyStat(date: string, field: string, amount: number = 1): Promise<void> {
   if (!supabase) return;
 
@@ -232,6 +296,7 @@ async function incrementDailyStat(date: string, field: string, amount: number = 
 }
 
 export interface Statistics {
+  // Basic counts
   totalGamesStarted: number;
   gamesCreatedNotStarted: number;
   gamesInProgress: number;
@@ -244,6 +309,16 @@ export interface Statistics {
   aiPlayersToday: number;
   maxConcurrentPlayers: number;
   currentConnections: number;
+  // Calculated stats
+  avgGameDurationMinutes: number | null;
+  completionRate: number | null;  // percentage
+  avgPlayersPerGame: number | null;
+  gamesByPlayerCount: Record<number, number>;  // { 2: 5, 3: 10, 4: 20, ... }
+  peakHour: number | null;  // 0-23
+  peakHourGames: number;
+  avgStanzasPerGame: number | null;
+  totalWhoopiesCalled: number;
+  totalWhoopieMisses: number;
 }
 
 export async function getStatistics(): Promise<Statistics> {
@@ -259,7 +334,16 @@ export async function getStatistics(): Promise<Statistics> {
     humanPlayersToday: 0,
     aiPlayersToday: 0,
     maxConcurrentPlayers: maxConcurrentToday,
-    currentConnections: getCurrentConnections()
+    currentConnections: getCurrentConnections(),
+    avgGameDurationMinutes: null,
+    completionRate: null,
+    avgPlayersPerGame: null,
+    gamesByPlayerCount: {},
+    peakHour: null,
+    peakHourGames: 0,
+    avgStanzasPerGame: null,
+    totalWhoopiesCalled: 0,
+    totalWhoopieMisses: 0
   };
 
   if (!isSupabaseConfigured() || !supabase) {
@@ -270,10 +354,10 @@ export async function getStatistics(): Promise<Statistics> {
   try {
     const today = getToday();
 
-    // Get all game statistics and count by status
+    // Get all game statistics with more fields for calculations
     const { data: allGames, error: gamesError } = await supabase
       .from('game_statistics')
-      .select('status, started_at');
+      .select('status, started_at, completed_at, player_count, stanzas_played, whoopie_calls, whoopie_misses');
 
     if (gamesError) {
       console.error('Failed to fetch game statistics:', gamesError.message);
@@ -285,8 +369,20 @@ export async function getStatistics(): Promise<Statistics> {
       in_progress: 0,
       completed: 0,
       abandoned: 0,
-      started: 0  // Games that actually started (have started_at)
+      started: 0
     };
+
+    // For calculations
+    let totalDurationMs = 0;
+    let durationCount = 0;
+    let totalPlayers = 0;
+    let playerCountGames = 0;
+    const gamesByPlayerCount: Record<number, number> = {};
+    const gamesByHour: Record<number, number> = {};
+    let totalStanzas = 0;
+    let stanzasCount = 0;
+    let totalWhoopiesCalled = 0;
+    let totalWhoopieMisses = 0;
 
     allGames?.forEach(row => {
       const status = row.status as keyof typeof counts;
@@ -295,8 +391,47 @@ export async function getStatistics(): Promise<Statistics> {
       }
       if (row.started_at) {
         counts.started++;
+
+        // Track peak hours
+        const startHour = new Date(row.started_at).getUTCHours();
+        gamesByHour[startHour] = (gamesByHour[startHour] || 0) + 1;
       }
+
+      // Calculate duration for completed/abandoned games
+      if (row.started_at && row.completed_at) {
+        const start = new Date(row.started_at).getTime();
+        const end = new Date(row.completed_at).getTime();
+        totalDurationMs += (end - start);
+        durationCount++;
+      }
+
+      // Track player counts
+      if (row.player_count && row.started_at) {
+        totalPlayers += row.player_count;
+        playerCountGames++;
+        gamesByPlayerCount[row.player_count] = (gamesByPlayerCount[row.player_count] || 0) + 1;
+      }
+
+      // Track stanzas
+      if (row.stanzas_played && row.stanzas_played > 0) {
+        totalStanzas += row.stanzas_played;
+        stanzasCount++;
+      }
+
+      // Track Whoopie calls
+      if (row.whoopie_calls) totalWhoopiesCalled += row.whoopie_calls;
+      if (row.whoopie_misses) totalWhoopieMisses += row.whoopie_misses;
     });
+
+    // Find peak hour
+    let peakHour: number | null = null;
+    let peakHourGames = 0;
+    for (const [hour, count] of Object.entries(gamesByHour)) {
+      if (count > peakHourGames) {
+        peakHour = parseInt(hour);
+        peakHourGames = count;
+      }
+    }
 
     // Get today's started games (games started today)
     const { count: gamesToday } = await supabase
@@ -333,9 +468,16 @@ export async function getStatistics(): Promise<Statistics> {
       .limit(1)
       .single();
 
+    // Calculate derived stats
+    const totalFinished = counts.completed + counts.abandoned;
+    const completionRate = totalFinished > 0 ? (counts.completed / totalFinished) * 100 : null;
+    const avgDurationMinutes = durationCount > 0 ? (totalDurationMs / durationCount) / 60000 : null;
+    const avgPlayersPerGame = playerCountGames > 0 ? totalPlayers / playerCountGames : null;
+    const avgStanzasPerGame = stanzasCount > 0 ? totalStanzas / stanzasCount : null;
+
     return {
       totalGamesStarted: counts.started,
-      gamesCreatedNotStarted: counts.created,  // These are games that were created but never started
+      gamesCreatedNotStarted: counts.created,
       gamesInProgress: counts.in_progress,
       gamesCompleted: counts.completed,
       gamesAbandoned: counts.abandoned,
@@ -345,7 +487,16 @@ export async function getStatistics(): Promise<Statistics> {
       humanPlayersToday: dailyStats?.human_players_today || 0,
       aiPlayersToday: dailyStats?.ai_players_today || 0,
       maxConcurrentPlayers: maxStats?.max_concurrent_players || maxConcurrentToday,
-      currentConnections: getCurrentConnections()
+      currentConnections: getCurrentConnections(),
+      avgGameDurationMinutes: avgDurationMinutes ? Math.round(avgDurationMinutes * 10) / 10 : null,
+      completionRate: completionRate ? Math.round(completionRate * 10) / 10 : null,
+      avgPlayersPerGame: avgPlayersPerGame ? Math.round(avgPlayersPerGame * 10) / 10 : null,
+      gamesByPlayerCount,
+      peakHour,
+      peakHourGames,
+      avgStanzasPerGame: avgStanzasPerGame ? Math.round(avgStanzasPerGame * 10) / 10 : null,
+      totalWhoopiesCalled,
+      totalWhoopieMisses
     };
   } catch (error) {
     console.error('Failed to get statistics:', error);

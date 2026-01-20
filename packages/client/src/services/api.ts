@@ -32,6 +32,16 @@ export async function getAdminStats(adminKey: string): Promise<{
   aiPlayersToday: number;
   maxConcurrentPlayers: number;
   currentConnections: number;
+  // New calculated stats
+  avgGameDurationMinutes: number | null;
+  completionRate: number | null;
+  avgPlayersPerGame: number | null;
+  gamesByPlayerCount: Record<number, number>;
+  peakHour: number | null;
+  peakHourGames: number;
+  avgStanzasPerGame: number | null;
+  totalWhoopiesCalled: number;
+  totalWhoopieMisses: number;
 } | null> {
   try {
     const response = await fetch(`${API_URL}/api/admin/stats`, {
