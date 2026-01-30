@@ -2,6 +2,13 @@ import { Server, Socket } from 'socket.io';
 import { GameManager } from './game/game-manager.js';
 import { AIRunner } from './game/ai-runner.js';
 import { Card, AIDifficulty, GameSettings } from '@whoopie/shared';
+
+// Grace period before marking a player as disconnected (ms)
+// Allows mobile browsers to reconnect after brief app switches
+const DISCONNECT_GRACE_MS = 10_000;
+
+// Track pending disconnects so we can cancel them on reconnect
+const pendingDisconnects: Map<string, NodeJS.Timeout> = new Map(); // playerId -> timeout
 import {
   recordGameCreated,
   recordGameStarted,
@@ -69,6 +76,14 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
     // Reconnect to a game after socket disconnect
     socket.on('game:reconnect', (data: { gameId: string; playerId: string }, callback) => {
       try {
+        // Cancel any pending grace-period disconnect for this player
+        const pendingTimeout = pendingDisconnects.get(data.playerId);
+        if (pendingTimeout) {
+          clearTimeout(pendingTimeout);
+          pendingDisconnects.delete(data.playerId);
+          console.log(`Player ${data.playerId} reconnected within grace period — disconnect cancelled`);
+        }
+
         const result = gameManager.reconnectPlayer(data.gameId, socket.id, data.playerId);
 
         if ('error' in result) {
@@ -481,7 +496,25 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
 
     socket.on('disconnect', () => {
       console.log(`Client disconnected: ${socket.id}`);
-      handleLeave(socket, io, gameManager, aiRunner);
+
+      // Check if this socket is in an active game
+      const playerId = gameManager.getPlayerIdForSocket(socket.id);
+      const session = gameManager.getGameForSocket(socket.id);
+      const isInProgressGame = session && session.game.phase !== 'waiting' && session.game.phase !== 'gameEnd';
+
+      if (isInProgressGame && playerId) {
+        // Grace period: delay disconnect to allow mobile reconnects
+        console.log(`Player ${playerId} disconnect grace period started (${DISCONNECT_GRACE_MS}ms)`);
+        const timeout = setTimeout(() => {
+          pendingDisconnects.delete(playerId);
+          console.log(`Player ${playerId} grace period expired, processing disconnect`);
+          handleLeave(socket, io, gameManager, aiRunner);
+        }, DISCONNECT_GRACE_MS);
+        pendingDisconnects.set(playerId, timeout);
+      } else {
+        // Not in an active game — disconnect immediately
+        handleLeave(socket, io, gameManager, aiRunner);
+      }
     });
   });
 }

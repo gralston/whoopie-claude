@@ -18,8 +18,9 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     const newSocket = io(socketUrl, {
       autoConnect: true,
       reconnection: true,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 10000,
       transports: ['websocket', 'polling'],
       withCredentials: true,
     });
@@ -38,9 +39,20 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       console.error('Socket connection error:', error);
     });
 
+    // When the tab becomes visible again (e.g., returning from another app on mobile),
+    // force a reconnect if the socket dropped while backgrounded
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !newSocket.connected) {
+        console.log('Tab visible again, forcing socket reconnect...');
+        newSocket.connect();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     setSocket(newSocket);
 
     return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       newSocket.close();
     };
   }, []);
