@@ -981,8 +981,8 @@ export default function Game() {
         </div>
         <div className="flex items-center gap-2 md:gap-4">
           <div className="text-white text-xs md:text-sm">
-            <span className="hidden sm:inline">{view.stanza?.cardsPerPlayer} cards</span>
-            <span className="sm:hidden">{view.stanza?.cardsPerPlayer} cards</span>
+            <span className="hidden sm:inline">{view.stanza?.cardsPerPlayer} {view.stanza?.cardsPerPlayer === 1 ? 'card' : 'cards'}</span>
+            <span className="sm:hidden">{view.stanza?.cardsPerPlayer} {view.stanza?.cardsPerPlayer === 1 ? 'card' : 'cards'}</span>
             {view.stanza?.bids && view.stanza.bids.some(b => b !== null) && (() => {
               const totalBids = view.stanza.bids.filter((b): b is number => b !== null).reduce((sum, b) => sum + b, 0);
               const diff = totalBids - view.stanza.cardsPerPlayer;
