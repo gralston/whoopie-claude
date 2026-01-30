@@ -5,7 +5,7 @@ import { Card, AIDifficulty, GameSettings } from '@whoopie/shared';
 
 // Grace period before marking a player as disconnected (ms)
 // Allows mobile browsers to reconnect after brief app switches
-const DISCONNECT_GRACE_MS = 10_000;
+const DISCONNECT_GRACE_MS = 20_000;
 
 // Track pending disconnects so we can cancel them on reconnect
 const pendingDisconnects: Map<string, NodeJS.Timeout> = new Map(); // playerId -> timeout

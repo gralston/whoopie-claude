@@ -125,6 +125,7 @@ export default function Game() {
     missingPlayers,
     continueResumedGame,
     disconnectedPlayer,
+    clearDisconnectedPlayer,
     wasKicked,
     clearKicked,
   } = useGame();
@@ -1907,9 +1908,15 @@ export default function Game() {
             >
               <h2 className="text-xl font-bold text-white mb-2">Player Disconnected</h2>
               <p className="text-gray-300 mb-6">
-                <span className="text-yellow-400 font-medium">{disconnectedPlayer.playerName}</span> has left the game. What would you like to do?
+                <span className="text-yellow-400 font-medium">{disconnectedPlayer.playerName}</span> has disconnected. They may reconnect — or you can take action now.
               </p>
               <div className="flex flex-col gap-3">
+                <button
+                  onClick={clearDisconnectedPlayer}
+                  className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition"
+                >
+                  Wait for them to reconnect
+                </button>
                 <button
                   onClick={handleReplaceWithAI}
                   className="w-full py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold transition"
