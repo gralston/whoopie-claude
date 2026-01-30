@@ -10,6 +10,55 @@ interface CardProps {
   faceDown?: boolean;
 }
 
+// Suit symbols for simple HTML cards on mobile
+const suitSymbol: Record<Suit, string> = {
+  spades: '♠',
+  hearts: '♥',
+  diamonds: '♦',
+  clubs: '♣',
+};
+
+const redSuits: Set<Suit> = new Set(['hearts', 'diamonds']);
+
+// Simple HTML card for mobile readability
+function SimpleCard({
+  card,
+  className = '',
+}: {
+  card: CardType;
+  className?: string;
+}) {
+  if (isJoker(card)) {
+    const isRed = card.jokerNumber === 1;
+    return (
+      <div
+        className={`${className} rounded-lg bg-white flex flex-col items-center justify-center relative`}
+      >
+        <span className={`text-[10px] font-bold absolute top-0.5 left-1 ${isRed ? 'text-red-600' : 'text-gray-800'}`}>J</span>
+        <span className={`text-lg font-bold ${isRed ? 'text-red-600' : 'text-gray-800'}`}>★</span>
+        <span className={`text-[10px] font-bold absolute bottom-0.5 right-1 rotate-180 ${isRed ? 'text-red-600' : 'text-gray-800'}`}>J</span>
+      </div>
+    );
+  }
+
+  if (isSuitCard(card)) {
+    const isRed = redSuits.has(card.suit);
+    const color = isRed ? 'text-red-600' : 'text-gray-800';
+    const symbol = suitSymbol[card.suit];
+    return (
+      <div
+        className={`${className} rounded-lg bg-white flex flex-col items-center justify-center relative`}
+      >
+        <span className={`text-[10px] font-bold leading-none absolute top-0.5 left-1 ${color}`}>{card.rank}</span>
+        <span className={`text-lg leading-none ${color}`}>{symbol}</span>
+        <span className={`text-[10px] font-bold leading-none absolute bottom-0.5 right-1 rotate-180 ${color}`}>{card.rank}</span>
+      </div>
+    );
+  }
+
+  return null;
+}
+
 // Map game suit names to SVG file suit names (singular)
 const suitToFile: Record<Suit, string> = {
   spades: 'spade',
@@ -82,6 +131,10 @@ export default function Card({
       ? `${card.rank} of ${card.suit}`
       : 'Card';
 
+  const simpleSizeClasses = small
+    ? 'w-10 h-[60px]'
+    : 'w-12 h-[72px]';
+
   return (
     <motion.button
       onClick={onClick}
@@ -96,10 +149,11 @@ export default function Card({
         card-shadow transition-shadow
       `}
     >
+      <SimpleCard card={card} className={`${simpleSizeClasses} sm:hidden`} />
       <img
         src={svgPath}
         alt={altText}
-        className="w-full h-full object-cover"
+        className="w-full h-full object-cover hidden sm:block"
         draggable={false}
       />
     </motion.button>
@@ -167,16 +221,29 @@ export function TrickCard({
     ringSize = 'ring-2';
   }
 
+  // Mobile-only size classes for SimpleCard
+  let simpleSizeClasses: string;
+  if (playerCount <= 4) {
+    simpleSizeClasses = 'w-[50px] h-[75px]';
+  } else if (playerCount <= 6) {
+    simpleSizeClasses = 'w-10 h-[60px]';
+  } else if (playerCount <= 8) {
+    simpleSizeClasses = 'w-12 h-[72px]';
+  } else {
+    simpleSizeClasses = 'w-10 h-[60px]';
+  }
+
   return (
     <div
       className={`${sizeClasses} rounded-lg overflow-hidden ${
         highlight ? `${ringSize} ring-yellow-400` : ''
       } card-shadow`}
     >
+      <SimpleCard card={card} className={`${simpleSizeClasses} sm:hidden`} />
       <img
         src={svgPath}
         alt={altText}
-        className="w-full h-full object-cover"
+        className="w-full h-full object-cover hidden sm:block"
         draggable={false}
       />
     </div>
@@ -198,10 +265,11 @@ export function MediumCard({ card, highlight = false }: { card: CardType; highli
         highlight ? 'ring-2 ring-yellow-400' : ''
       } card-shadow`}
     >
+      <SimpleCard card={card} className="w-10 h-[60px] sm:hidden" />
       <img
         src={svgPath}
         alt={altText}
-        className="w-full h-full object-cover"
+        className="w-full h-full object-cover hidden sm:block"
         draggable={false}
       />
     </div>

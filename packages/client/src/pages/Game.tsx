@@ -914,10 +914,10 @@ export default function Game() {
       <div className="bg-black/30 px-2 py-1 md:py-2 flex items-center justify-between relative z-20">
         <div className="flex items-center gap-1.5 md:gap-3">
           <button
-            onClick={handleLeave}
-            className="text-gray-400 hover:text-white text-xs md:text-sm transition"
+            onClick={() => setShowScoreboard(true)}
+            className="text-green-400 hover:text-green-300 text-xs md:text-sm transition"
           >
-            Leave
+            Score
           </button>
           {lastTrickForReview && (
             <button
@@ -927,27 +927,17 @@ export default function Game() {
               Review
             </button>
           )}
-          <button
-            onClick={() => setShowScoreboard(true)}
-            className="text-green-400 hover:text-green-300 text-xs md:text-sm transition"
-          >
-            Score
-          </button>
-          <button
-            onClick={handlePause}
-            className="text-yellow-400 hover:text-yellow-300 text-xs md:text-sm transition"
-          >
-            Pause
-          </button>
           <HelpMenu
             onShowRules={() => setShowRules(true)}
             onShowFeedback={() => setShowFeedback(true)}
+            onLeave={handleLeave}
+            onPause={handlePause}
           />
         </div>
         <div className="flex items-center gap-2 md:gap-4">
           <div className="text-white text-xs md:text-sm">
-            <span className="hidden sm:inline">Stanza {view.stanza?.stanzaNumber} | {view.stanza?.cardsPerPlayer} cards</span>
-            <span className="sm:hidden">S{view.stanza?.stanzaNumber} | {view.stanza?.cardsPerPlayer}c</span>
+            <span className="hidden sm:inline">{view.stanza?.stanzaNumber} | {view.stanza?.cardsPerPlayer} cards</span>
+            <span className="sm:hidden">{view.stanza?.stanzaNumber} | {view.stanza?.cardsPerPlayer}c</span>
             {/* Show bid total vs stanza - updates after each bid */}
             {view.stanza?.bids && view.stanza.bids.some(b => b !== null) && (() => {
               const totalBids = view.stanza.bids.filter((b): b is number => b !== null).reduce((sum, b) => sum + b, 0);
@@ -1000,9 +990,6 @@ export default function Game() {
             >
               J-Trump ?
             </button>
-          )}
-          {view.stanza?.whoopieRank && (
-            <span className="ml-2 text-yellow-300">Whoopie: {view.stanza.whoopieRank}</span>
           )}
         </div>
       </div>
@@ -1110,7 +1097,7 @@ export default function Game() {
             return (
               <div
                 key={player.id}
-                className={`bg-black/40 rounded-lg p-1.5 md:p-3 text-center min-w-[70px] md:min-w-[100px] relative ${
+                className={`bg-black/40 rounded-lg p-1.5 md:p-3 text-center min-w-[60px] md:min-w-[100px] relative ${
                   isCurrentPlayer ? 'ring-2 ring-yellow-400' : ''
                 } ${isDisconnected ? 'opacity-50' : ''}`}
               >
@@ -1126,16 +1113,27 @@ export default function Game() {
                   {player.name}
                   {isDisconnected && <span className="text-red-400 ml-1">(offline)</span>}
                 </p>
-                <p className="text-gray-400 text-xs">
+                <p className="text-gray-400 text-xs hidden md:block">
                   Score: {view.scores[index]}
                 </p>
                 {bid !== null && bid !== undefined && (
-                  <p className="text-blue-300 text-xs whitespace-nowrap">
-                    Bid: {bid} | Tricks: {tricks}
+                  <>
+                    <p className="text-blue-300 text-xs whitespace-nowrap md:hidden">
+                      B:{bid} T:{tricks}
+                    </p>
+                    <p className="text-blue-300 text-xs whitespace-nowrap hidden md:block">
+                      Bid: {bid} | Tricks: {tricks}
+                    </p>
+                  </>
+                )}
+                {/* Mobile: compact hand count */}
+                {handCount > 0 && (
+                  <p className="text-gray-400 text-xs md:hidden mt-0.5">
+                    <span className="opacity-70">&#x1F0A0;</span> {handCount}
                   </p>
                 )}
-                <div className="mt-1 md:mt-2 flex items-center justify-center gap-2">
-                  {/* Animated bid badge */}
+                {/* Desktop: card back visual + bid animation */}
+                <div className="mt-1 md:mt-2 hidden md:flex items-center justify-center gap-2">
                   <AnimatePresence>
                     {bidAnnouncements.has(index) && (
                       <motion.div
@@ -1151,9 +1149,26 @@ export default function Game() {
                   </AnimatePresence>
                   <CardBack count={handCount} />
                 </div>
+                {/* Mobile: bid animation (without CardBack) */}
+                <div className="mt-0.5 flex items-center justify-center md:hidden">
+                  <AnimatePresence>
+                    {bidAnnouncements.has(index) && (
+                      <motion.div
+                        initial={{ scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0, opacity: 0 }}
+                        transition={{ type: 'spring', damping: 15 }}
+                        className="bg-blue-600 rounded-full w-6 h-6 flex items-center justify-center shadow-lg border border-blue-400"
+                      >
+                        <span className="text-white text-[10px] font-bold">{bidAnnouncements.get(index)}</span>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
                 {index === view.stanza?.dealerIndex && (
-                  <span className="inline-block mt-1 text-xs bg-yellow-600 px-2 py-0.5 rounded">
-                    Dealer
+                  <span className="inline-block mt-0.5 md:mt-1 text-xs bg-yellow-600 px-1 md:px-2 py-0.5 rounded">
+                    <span className="md:hidden">D</span>
+                    <span className="hidden md:inline">Dealer</span>
                   </span>
                 )}
                 {isHost && (
@@ -1384,13 +1399,19 @@ export default function Game() {
           {view.stanza?.bids[view.myIndex] !== null && view.stanza?.bids[view.myIndex] !== undefined && (
             <>
               <span className="text-gray-400 mx-2">|</span>
-              <span className="text-blue-300">
+              <span className="text-blue-300 md:hidden">
+                B:{view.stanza.bids[view.myIndex]} T:{view.stanza?.tricksTaken[view.myIndex] ?? 0}
+              </span>
+              <span className="text-blue-300 hidden md:inline">
                 Bid: {view.stanza.bids[view.myIndex]} | Tricks: {view.stanza?.tricksTaken[view.myIndex] ?? 0}
               </span>
             </>
           )}
           {view.myIndex === view.stanza?.dealerIndex && (
-            <span className="ml-2 text-xs bg-yellow-600 px-2 py-0.5 rounded">Dealer</span>
+            <span className="ml-2 text-xs bg-yellow-600 px-1 md:px-2 py-0.5 rounded">
+              <span className="md:hidden">D</span>
+              <span className="hidden md:inline">Dealer</span>
+            </span>
           )}
         </div>
 
