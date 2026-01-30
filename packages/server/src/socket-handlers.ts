@@ -503,14 +503,22 @@ export function setupSocketHandlers(io: Server, gameManager: GameManager): void 
       const isInProgressGame = session && session.game.phase !== 'waiting' && session.game.phase !== 'gameEnd';
 
       if (isInProgressGame && playerId) {
-        // Grace period: delay disconnect to allow mobile reconnects
-        console.log(`Player ${playerId} disconnect grace period started (${DISCONNECT_GRACE_MS}ms)`);
-        const timeout = setTimeout(() => {
-          pendingDisconnects.delete(playerId);
-          console.log(`Player ${playerId} grace period expired, processing disconnect`);
-          handleLeave(socket, io, gameManager, aiRunner);
-        }, DISCONNECT_GRACE_MS);
-        pendingDisconnects.set(playerId, timeout);
+        const isHost = playerId === session.game.hostId;
+
+        if (isHost) {
+          // Host never auto-disconnects — they must explicitly leave
+          console.log(`Host ${playerId} socket dropped, waiting indefinitely for reconnect`);
+          pendingDisconnects.set(playerId, null as any);
+        } else {
+          // Grace period: delay disconnect to allow mobile reconnects
+          console.log(`Player ${playerId} disconnect grace period started (${DISCONNECT_GRACE_MS}ms)`);
+          const timeout = setTimeout(() => {
+            pendingDisconnects.delete(playerId);
+            console.log(`Player ${playerId} grace period expired, processing disconnect`);
+            handleLeave(socket, io, gameManager, aiRunner);
+          }, DISCONNECT_GRACE_MS);
+          pendingDisconnects.set(playerId, timeout);
+        }
       } else {
         // Not in an active game — disconnect immediately
         handleLeave(socket, io, gameManager, aiRunner);

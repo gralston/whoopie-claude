@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { useSocket } from './SocketContext';
 import { Card, GameEvent, AIDifficulty } from '@whoopie/shared';
 
@@ -98,8 +98,15 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [resumeCode, setResumeCode] = useState<string | null>(null);
   const [missingPlayers, setMissingPlayers] = useState<string[]>([]);
 
-  // Track if we need to reconnect after socket reconnects
-  const [needsReconnect, setNeedsReconnect] = useState(false);
+  // Track if we need to reconnect after socket reconnects (ref avoids stale closures)
+  const needsReconnectRef = useRef(false);
+  // Refs for gameId/playerId so callbacks always see current values
+  const gameIdRef = useRef<string | null>(null);
+  const playerIdRef = useRef<string | null>(null);
+
+  // Keep refs in sync with state
+  useEffect(() => { gameIdRef.current = gameId; }, [gameId]);
+  useEffect(() => { playerIdRef.current = playerId; }, [playerId]);
 
   // Listen for game events
   useEffect(() => {
@@ -137,33 +144,47 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
 
     // When socket disconnects, mark that we need to reconnect
     const handleDisconnect = () => {
-      if (gameId && playerId) {
+      if (gameIdRef.current && playerIdRef.current) {
         console.log('Socket disconnected, will attempt to reconnect to game...');
-        setNeedsReconnect(true);
+        needsReconnectRef.current = true;
       }
+    };
+
+    // Attempt to rejoin the game (used by both connect handler and visibilitychange)
+    const attemptReconnect = () => {
+      const gId = gameIdRef.current;
+      const pId = playerIdRef.current;
+      if (!needsReconnectRef.current || !gId || !pId) return;
+
+      console.log('Attempting to reconnect to game...');
+      socket.emit('game:reconnect', { gameId: gId, playerId: pId }, (response: { success: boolean; view?: PlayerView; error?: string }) => {
+        if (response.success && response.view) {
+          console.log('Successfully reconnected to game');
+          setView(response.view);
+          needsReconnectRef.current = false;
+        } else {
+          console.error('Failed to reconnect to game:', response.error);
+          setGameId(null);
+          setPlayerId(null);
+          setView(null);
+          setEvents([]);
+          needsReconnectRef.current = false;
+        }
+      });
     };
 
     // When socket reconnects, attempt to rejoin the game
     const handleConnect = () => {
-      if (needsReconnect && gameId && playerId) {
-        console.log('Socket reconnected, attempting to reconnect to game...');
-        socket.emit('game:reconnect', { gameId, playerId }, (response: { success: boolean; view?: PlayerView; error?: string }) => {
-          if (response.success && response.view) {
-            console.log('Successfully reconnected to game');
-            setView(response.view);
-            setNeedsReconnect(false);
-          } else {
-            console.error('Failed to reconnect to game:', response.error);
-            // Game might be gone, clear state
-            setGameId(null);
-            setPlayerId(null);
-            setView(null);
-            setEvents([]);
-            setNeedsReconnect(false);
-          }
-        });
+      attemptReconnect();
+    };
+
+    // When tab becomes visible, check if we need to reconnect
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && needsReconnectRef.current && socket.connected) {
+        attemptReconnect();
       }
     };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     socket.on('game:event', handleEvent);
     socket.on('game:state', handleState);
@@ -181,8 +202,9 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       socket.off('game:playerDisconnected', handlePlayerDisconnected);
       socket.off('disconnect', handleDisconnect);
       socket.off('connect', handleConnect);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [socket, gameId, playerId, needsReconnect]);
+  }, [socket]);
 
   const createGame = useCallback(async (name: string): Promise<string> => {
     const response = await emit<{ gameId: string; view: PlayerView }>('game:create', {
