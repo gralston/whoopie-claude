@@ -1973,13 +1973,20 @@ export default function Game() {
               <h2 className="text-xl font-bold text-yellow-400 mb-3">What is J-Trump?</h2>
               <div className="text-gray-300 text-sm space-y-3">
                 <p>
-                  <span className="text-white font-medium">J-Trump</span> means no trump suit has been set yet this stanza.
+                  <span className="text-white font-medium">J-Trump</span> means there is no fixed trump suit right now.
                 </p>
                 <p>
-                  Trump gets set when the <span className="text-yellow-300">first Whoopie card</span> is played - whatever suit that card is becomes trump for the rest of the stanza.
+                  Each trick, the <span className="text-yellow-300">led suit becomes trump for that trick</span> — the leader effectively picks trump. Jokers and Whoopie cards are still always trump.
                 </p>
                 <p>
-                  While J-Trump is active, <span className="text-purple-400">Jokers are the only trump cards</span>. If a Joker is led, all cards become trump for that trick and the highest card wins.
+                  J-Trump can happen when:
+                </p>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>A <span className="text-purple-400">Joker</span> is the Whoopie defining card (no initial trump)</li>
+                  <li>A <span className="text-purple-400">Joker</span> is played mid-trick (cancels the current trump)</li>
+                </ul>
+                <p>
+                  J-Trump ends when a <span className="text-yellow-300">Whoopie card</span> is played — its suit becomes the new fixed trump.
                 </p>
               </div>
               <button
