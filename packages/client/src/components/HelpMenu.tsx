@@ -37,7 +37,7 @@ export function HelpMenu({ onShowRules, onShowFeedback, onLeave, onPause, varian
         onClick={() => setIsOpen(!isOpen)}
         className={buttonClass}
       >
-        ? {isOpen ? '▲' : '▼'}
+        Menu {isOpen ? '▲' : '▼'}
       </button>
 
       <AnimatePresence>

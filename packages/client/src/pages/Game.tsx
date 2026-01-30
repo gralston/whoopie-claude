@@ -911,7 +911,7 @@ export default function Game() {
       </AnimatePresence>
 
       {/* Top bar - game info */}
-      <div className="bg-black/30 px-2 py-1 md:py-2 flex items-center justify-between relative z-20">
+      <div className="bg-black/30 px-2 py-1 md:py-2 flex items-center justify-between relative z-30">
         <div className="flex items-center gap-1.5 md:gap-3">
           <button
             onClick={() => setShowScoreboard(true)}
