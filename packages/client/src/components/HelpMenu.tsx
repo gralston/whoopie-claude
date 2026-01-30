@@ -4,10 +4,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 interface HelpMenuProps {
   onShowRules: () => void;
   onShowFeedback: () => void;
+  onLeave?: () => void;
+  onPause?: () => void;
   variant?: 'default' | 'footer';
 }
 
-export function HelpMenu({ onShowRules, onShowFeedback, variant = 'default' }: HelpMenuProps) {
+export function HelpMenu({ onShowRules, onShowFeedback, onLeave, onPause, variant = 'default' }: HelpMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -35,7 +37,7 @@ export function HelpMenu({ onShowRules, onShowFeedback, variant = 'default' }: H
         onClick={() => setIsOpen(!isOpen)}
         className={buttonClass}
       >
-        Help {isOpen ? '▲' : '▼'}
+        ? {isOpen ? '▲' : '▼'}
       </button>
 
       <AnimatePresence>
@@ -47,6 +49,28 @@ export function HelpMenu({ onShowRules, onShowFeedback, variant = 'default' }: H
             transition={{ duration: 0.15 }}
             className="absolute right-0 mt-2 w-40 bg-gray-800 rounded-lg shadow-lg border border-gray-700 overflow-hidden z-50"
           >
+            {onLeave && (
+              <button
+                onClick={() => {
+                  onLeave();
+                  setIsOpen(false);
+                }}
+                className="w-full px-4 py-2 text-left text-sm text-gray-200 hover:bg-gray-700 transition"
+              >
+                Leave Game
+              </button>
+            )}
+            {onPause && (
+              <button
+                onClick={() => {
+                  onPause();
+                  setIsOpen(false);
+                }}
+                className="w-full px-4 py-2 text-left text-sm text-gray-200 hover:bg-gray-700 transition"
+              >
+                Pause Game
+              </button>
+            )}
             <button
               onClick={() => {
                 onShowRules();
