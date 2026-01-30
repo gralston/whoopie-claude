@@ -34,9 +34,9 @@ function SimpleCard({
       <div
         className={`${className} rounded-lg bg-white flex flex-col items-center justify-center relative`}
       >
-        <span className={`text-[10px] font-bold absolute top-0.5 left-1 ${isRed ? 'text-red-600' : 'text-gray-800'}`}>J</span>
-        <span className={`text-lg font-bold ${isRed ? 'text-red-600' : 'text-gray-800'}`}>★</span>
-        <span className={`text-[10px] font-bold absolute bottom-0.5 right-1 rotate-180 ${isRed ? 'text-red-600' : 'text-gray-800'}`}>J</span>
+        <span className={`text-sm font-bold absolute top-0 left-1 ${isRed ? 'text-red-600' : 'text-gray-800'}`}>J</span>
+        <span className={`text-3xl font-bold ${isRed ? 'text-red-600' : 'text-gray-800'}`}>★</span>
+        <span className={`text-sm font-bold absolute bottom-0 right-1 rotate-180 ${isRed ? 'text-red-600' : 'text-gray-800'}`}>J</span>
       </div>
     );
   }
@@ -49,9 +49,9 @@ function SimpleCard({
       <div
         className={`${className} rounded-lg bg-white flex flex-col items-center justify-center relative`}
       >
-        <span className={`text-[10px] font-bold leading-none absolute top-0.5 left-1 ${color}`}>{card.rank}</span>
-        <span className={`text-lg leading-none ${color}`}>{symbol}</span>
-        <span className={`text-[10px] font-bold leading-none absolute bottom-0.5 right-1 rotate-180 ${color}`}>{card.rank}</span>
+        <span className={`text-sm font-bold leading-none absolute top-0 left-1 ${color}`}>{card.rank}</span>
+        <span className={`text-3xl leading-none ${color}`}>{symbol}</span>
+        <span className={`text-sm font-bold leading-none absolute bottom-0 right-1 rotate-180 ${color}`}>{card.rank}</span>
       </div>
     );
   }

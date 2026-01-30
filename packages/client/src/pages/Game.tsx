@@ -533,11 +533,13 @@ export default function Game() {
   };
 
   const handleLeave = () => {
+    if (!confirm('Leave the game? You can rejoin if the game is still active.')) return;
     leaveGame();
     navigate('/');
   };
 
   const handlePause = async () => {
+    if (!confirm('Pause the game? All players will be disconnected and given a resume code.')) return;
     try {
       await pauseGame();
     } catch (err) {
@@ -957,14 +959,14 @@ export default function Game() {
         <div className="flex items-center gap-1.5 md:gap-3">
           <button
             onClick={() => setShowScoreboard(true)}
-            className="text-green-400 hover:text-green-300 text-xs md:text-sm transition"
+            className="text-green-400 hover:text-green-300 text-sm transition"
           >
             Score
           </button>
           {lastTrickForReview && (
             <button
               onClick={() => setShowTrickReview(true)}
-              className="text-blue-400 hover:text-blue-300 text-xs md:text-sm transition"
+              className="text-blue-400 hover:text-blue-300 text-sm transition"
             >
               Review
             </button>
@@ -978,15 +980,14 @@ export default function Game() {
         </div>
         <div className="flex items-center gap-2 md:gap-4">
           <div className="text-white text-xs md:text-sm">
-            <span className="hidden sm:inline">{view.stanza?.stanzaNumber} | {view.stanza?.cardsPerPlayer} cards</span>
-            <span className="sm:hidden">{view.stanza?.stanzaNumber} | {view.stanza?.cardsPerPlayer}c</span>
-            {/* Show bid total vs stanza - updates after each bid */}
+            <span className="hidden sm:inline">{view.stanza?.cardsPerPlayer} cards</span>
+            <span className="sm:hidden">{view.stanza?.cardsPerPlayer} cards</span>
             {view.stanza?.bids && view.stanza.bids.some(b => b !== null) && (() => {
               const totalBids = view.stanza.bids.filter((b): b is number => b !== null).reduce((sum, b) => sum + b, 0);
               const diff = totalBids - view.stanza.cardsPerPlayer;
               const sign = diff > 0 ? '+' : '';
               const color = diff === 0 ? 'text-yellow-400' : diff > 0 ? 'text-green-400' : 'text-red-400';
-              return <span className={`ml-2 ${color}`}>({sign}{diff})</span>;
+              return <span className={`ml-1 ${color}`}>(bid: {sign}{diff})</span>;
             })()}
           </div>
           {/* Leader indicator - hidden on mobile, available in Scoreboard modal */}
@@ -1168,12 +1169,6 @@ export default function Game() {
                     </p>
                   </>
                 )}
-                {/* Mobile: compact hand count */}
-                {handCount > 0 && (
-                  <p className="text-gray-400 text-xs md:hidden mt-0.5">
-                    <span className="opacity-70">&#x1F0A0;</span> {handCount}
-                  </p>
-                )}
                 {/* Desktop: card back visual + bid animation */}
                 <div className="mt-1 md:mt-2 hidden md:flex items-center justify-center gap-2">
                   <AnimatePresence>
@@ -1216,9 +1211,10 @@ export default function Game() {
                 {isHost && (
                   <button
                     onClick={() => handleKickPlayer(player.id, player.name)}
-                    className="mt-1 text-xs bg-red-600/80 hover:bg-red-600 px-2 py-0.5 rounded text-white transition"
+                    className="mt-0.5 md:mt-1 text-xs bg-red-600/80 hover:bg-red-600 px-1 md:px-2 py-0.5 rounded text-white transition"
                   >
-                    Kick
+                    <span className="md:hidden">K</span>
+                    <span className="hidden md:inline">Kick</span>
                   </button>
                 )}
               </div>
