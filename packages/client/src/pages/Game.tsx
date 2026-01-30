@@ -1408,12 +1408,20 @@ export default function Game() {
             {isJoker(view.stanza.whoopieDefiningCard) && (
               <button
                 onClick={() => setShowJokerWhoopieHelp(true)}
-                className="text-purple-400 hover:text-purple-300 text-xs underline decoration-dotted mb-1 block"
+                className="text-purple-400 hover:text-purple-300 text-xs underline decoration-dotted mb-0.5 block"
               >
-                All cards are Whoopie! ?
+                ?
               </button>
             )}
-            <MediumCard card={view.stanza.whoopieDefiningCard} highlight />
+            <div className="flex items-center gap-1 justify-center">
+              <MediumCard card={view.stanza.whoopieDefiningCard} highlight />
+              {isJoker(view.stanza.whoopieDefiningCard) && view.stanza.whoopieRank && view.stanza.currentTrumpSuit && (
+                <MediumCard
+                  card={{ type: 'suit' as const, suit: view.stanza.currentTrumpSuit as Suit, rank: view.stanza.whoopieRank as any }}
+                  highlight
+                />
+              )}
+            </div>
           </div>
         )}
       </div>
