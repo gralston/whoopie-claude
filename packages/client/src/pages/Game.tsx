@@ -912,30 +912,30 @@ export default function Game() {
 
       {/* Top bar - game info */}
       <div className="bg-black/30 px-2 py-1 md:py-2 flex items-center justify-between relative z-20">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-1.5 md:gap-3">
           <button
             onClick={handleLeave}
-            className="text-gray-400 hover:text-white text-sm transition"
+            className="text-gray-400 hover:text-white text-xs md:text-sm transition"
           >
             Leave
           </button>
           {lastTrickForReview && (
             <button
               onClick={() => setShowTrickReview(true)}
-              className="text-blue-400 hover:text-blue-300 text-sm transition"
+              className="text-blue-400 hover:text-blue-300 text-xs md:text-sm transition"
             >
               Review
             </button>
           )}
           <button
             onClick={() => setShowScoreboard(true)}
-            className="text-green-400 hover:text-green-300 text-sm transition"
+            className="text-green-400 hover:text-green-300 text-xs md:text-sm transition"
           >
             Score
           </button>
           <button
             onClick={handlePause}
-            className="text-yellow-400 hover:text-yellow-300 text-sm transition"
+            className="text-yellow-400 hover:text-yellow-300 text-xs md:text-sm transition"
           >
             Pause
           </button>
@@ -944,9 +944,10 @@ export default function Game() {
             onShowFeedback={() => setShowFeedback(true)}
           />
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-white text-sm">
-            Stanza {view.stanza?.stanzaNumber} | {view.stanza?.cardsPerPlayer} cards
+        <div className="flex items-center gap-2 md:gap-4">
+          <div className="text-white text-xs md:text-sm">
+            <span className="hidden sm:inline">Stanza {view.stanza?.stanzaNumber} | {view.stanza?.cardsPerPlayer} cards</span>
+            <span className="sm:hidden">S{view.stanza?.stanzaNumber} | {view.stanza?.cardsPerPlayer}c</span>
             {/* Show bid total vs stanza - updates after each bid */}
             {view.stanza?.bids && view.stanza.bids.some(b => b !== null) && (() => {
               const totalBids = view.stanza.bids.filter((b): b is number => b !== null).reduce((sum, b) => sum + b, 0);

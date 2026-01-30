@@ -264,8 +264,9 @@ export class GameManager {
         }
       }
 
-      // If no players left, delete the game
-      if (session.game.players.length === 0) {
+      // If no human players left, delete the game (AI-only games can't be started)
+      const remainingHumans = session.game.players.filter(p => p.type === 'human');
+      if (session.game.players.length === 0 || remainingHumans.length === 0) {
         this.games.delete(gameId);
       }
 
