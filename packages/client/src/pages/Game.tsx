@@ -164,6 +164,19 @@ export default function Game() {
     }
   }, [view, gameId, navigate, wasKicked]);
 
+  // Warn before closing/reloading the page during an active game
+  useEffect(() => {
+    const isActiveGame = view && view.phase !== 'gameEnd';
+    if (!isActiveGame) return;
+
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [view, view?.phase]);
+
   // Handle being kicked - show message and redirect
   useEffect(() => {
     if (wasKicked) {
@@ -882,7 +895,7 @@ export default function Game() {
 
   // Game in progress
   return (
-    <div className="min-h-screen felt-texture flex flex-col">
+    <div className="h-[100dvh] felt-texture flex flex-col overflow-hidden">
       {/* Notification banner */}
       <AnimatePresence>
         {notification && (
@@ -898,7 +911,7 @@ export default function Game() {
       </AnimatePresence>
 
       {/* Top bar - game info */}
-      <div className="bg-black/30 p-2 flex items-center justify-between relative z-20">
+      <div className="bg-black/30 px-2 py-1 md:py-2 flex items-center justify-between relative z-20">
         <div className="flex items-center gap-3">
           <button
             onClick={handleLeave}
@@ -943,7 +956,8 @@ export default function Game() {
               return <span className={`ml-2 ${color}`}>({sign}{diff})</span>;
             })()}
           </div>
-          {/* Leader indicator */}
+          {/* Leader indicator - hidden on mobile, available in Scoreboard modal */}
+          <div className="hidden md:block">
           {(() => {
             const maxScore = Math.max(...view.scores);
             const leaders = view.players.filter((_, i) => view.scores[i] === maxScore);
@@ -964,8 +978,9 @@ export default function Game() {
             }
             return null;
           })()}
+          </div>
         </div>
-        <div className="text-white text-sm">
+        <div className="text-white text-xs md:text-sm">
           Trump: {view.stanza?.jTrumpActive ? (
             <button
               onClick={() => setShowJTrumpHelp(true)}
@@ -992,7 +1007,7 @@ export default function Game() {
       </div>
 
       {/* Main game area */}
-      <div className="flex-1 flex flex-col items-center justify-center p-4 relative">
+      <div className="flex-1 min-h-0 flex flex-col items-center justify-center p-2 md:p-4 relative">
         {/* Arrange other players clockwise around the table */}
         {(() => {
           // Get other players in clockwise order starting from player to my left
@@ -1094,7 +1109,7 @@ export default function Game() {
             return (
               <div
                 key={player.id}
-                className={`bg-black/40 rounded-lg p-3 text-center min-w-[100px] relative ${
+                className={`bg-black/40 rounded-lg p-1.5 md:p-3 text-center min-w-[70px] md:min-w-[100px] relative ${
                   isCurrentPlayer ? 'ring-2 ring-yellow-400' : ''
                 } ${isDisconnected ? 'opacity-50' : ''}`}
               >
@@ -1106,7 +1121,7 @@ export default function Game() {
                     {scoreDelta > 0 ? `+${scoreDelta}` : scoreDelta}
                   </div>
                 )}
-                <p className={`font-medium ${player.type === 'ai' ? 'text-purple-300' : 'text-white'}`}>
+                <p className={`text-xs md:text-base font-medium ${player.type === 'ai' ? 'text-purple-300' : 'text-white'}`}>
                   {player.name}
                   {isDisconnected && <span className="text-red-400 ml-1">(offline)</span>}
                 </p>
@@ -1118,7 +1133,7 @@ export default function Game() {
                     Bid: {bid} | Tricks: {tricks}
                   </p>
                 )}
-                <div className="mt-2 flex items-center justify-center gap-2">
+                <div className="mt-1 md:mt-2 flex items-center justify-center gap-2">
                   {/* Animated bid badge */}
                   <AnimatePresence>
                     {bidAnnouncements.has(index) && (
@@ -1181,7 +1196,7 @@ export default function Game() {
         </AnimatePresence>
 
         {/* Current trick area */}
-        <div className="bg-black/20 rounded-xl p-8 min-w-[300px] min-h-[200px] flex flex-col items-center justify-center gap-2 relative">
+        <div className="bg-black/20 rounded-xl p-3 md:p-8 min-w-[200px] md:min-w-[300px] min-h-[120px] md:min-h-[200px] flex flex-col items-center justify-center gap-2 relative">
           {/* Winner announcement - shown during complete, gathering, and collecting phases */}
           <AnimatePresence>
             {(trickAnimPhase === 'complete' || trickAnimPhase === 'gathering' || trickAnimPhase === 'collecting') && completedTrick && (
@@ -1334,8 +1349,8 @@ export default function Game() {
 
         {/* Whoopie defining card - positioned top-right to avoid player overlap */}
         {view.stanza?.whoopieDefiningCard && (
-          <div className="absolute right-4 top-4 text-center">
-            <p className="text-gray-300 text-sm mb-1 font-medium">Whoopie Card</p>
+          <div className="absolute right-1 top-1 md:right-4 md:top-4 text-center">
+            <p className="text-gray-300 text-[10px] md:text-sm mb-0.5 md:mb-1 font-medium">Whoopie Card</p>
             {isJoker(view.stanza.whoopieDefiningCard) && (
               <button
                 onClick={() => setShowJokerWhoopieHelp(true)}
@@ -1350,9 +1365,9 @@ export default function Game() {
       </div>
 
       {/* Bottom - player's hand and controls */}
-      <div className="bg-black/40 p-4">
+      <div className="bg-black/40 p-2 md:p-4 safe-bottom">
         {/* Player info */}
-        <div className="text-center mb-3">
+        <div className="text-center mb-1 md:mb-3">
           <span className="text-white font-medium">
             {view.players[view.myIndex]?.name}
           </span>
@@ -1380,7 +1395,7 @@ export default function Game() {
 
         {/* Bidding UI */}
         {view.phase === 'bidding' && view.isMyTurn && (
-          <div className="flex flex-col items-center gap-3 mb-4">
+          <div className="flex flex-col items-center gap-2 mb-2 md:gap-3 md:mb-4">
             <p className="text-yellow-300 font-semibold">Your bid:</p>
             <div className="flex gap-2 flex-wrap justify-center">
               {view.validActions.canBid.map((bid) => (
@@ -1398,23 +1413,23 @@ export default function Game() {
 
         {/* Status message */}
         {view.phase === 'bidding' && !view.isMyTurn && (
-          <p className="text-center text-gray-400 mb-4">
+          <p className="text-center text-gray-400 mb-2 md:mb-4">
             Waiting for {view.players[view.stanza?.currentPlayerIndex ?? 0]?.name} to bid...
           </p>
         )}
 
         {view.phase === 'playing' && !view.isMyTurn && (
-          <p className="text-center text-gray-400 mb-4">
+          <p className="text-center text-gray-400 mb-2 md:mb-4">
             Waiting for {view.players[view.stanza?.currentPlayerIndex ?? 0]?.name} to play...
           </p>
         )}
 
         {view.phase === 'playing' && view.isMyTurn && (
-          <p className="text-center text-yellow-300 font-semibold mb-4">Your turn - select a card!</p>
+          <p className="text-center text-yellow-300 font-semibold mb-2 md:mb-4">Your turn - select a card!</p>
         )}
 
         {/* Player's hand */}
-        <div className="flex justify-center gap-1 sm:gap-2 flex-wrap">
+        <div className="flex justify-center gap-0.5 sm:gap-1 md:gap-2 flex-wrap">
           {sortHandForDisplay(view.stanza?.myHand ?? []).map((card, index) => {
             const isValid = view.validActions.canPlay.some((c) => cardsEqual(c, card));
             return (

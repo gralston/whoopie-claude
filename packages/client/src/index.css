@@ -35,6 +35,13 @@ body {
   color: #1f2937;
 }
 
+/* Safe area insets for notched phones */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
 /* Felt table texture */
 .felt-texture {
   background-color: #0d5c2e;

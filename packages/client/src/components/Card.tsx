@@ -61,7 +61,7 @@ export default function Card({
 }: CardProps) {
   const sizeClasses = small
     ? 'w-10 h-[60px]'
-    : 'w-16 h-24 sm:w-20 sm:h-[120px]';
+    : 'w-12 h-[72px] sm:w-16 sm:h-24 md:w-20 md:h-[120px]';
 
   if (faceDown) {
     return (
@@ -154,10 +154,10 @@ export function TrickCard({
   let ringSize: string;
 
   if (playerCount <= 4) {
-    sizeClasses = 'w-[68px] h-[102px]'; // 68x102px
+    sizeClasses = 'w-[50px] h-[75px] md:w-[68px] md:h-[102px]'; // mobile: 50x75px, desktop: 68x102px
     ringSize = 'ring-4';
   } else if (playerCount <= 6) {
-    sizeClasses = 'w-14 h-[84px]'; // 56x84px
+    sizeClasses = 'w-10 h-[60px] md:w-14 md:h-[84px]'; // mobile: 40x60px, desktop: 56x84px
     ringSize = 'ring-4';
   } else if (playerCount <= 8) {
     sizeClasses = 'w-12 h-[72px]'; // 48x72px
@@ -194,7 +194,7 @@ export function MediumCard({ card, highlight = false }: { card: CardType; highli
 
   return (
     <div
-      className={`w-14 h-[84px] rounded-lg overflow-hidden ${
+      className={`w-10 h-[60px] md:w-14 md:h-[84px] rounded-lg overflow-hidden ${
         highlight ? 'ring-2 ring-yellow-400' : ''
       } card-shadow`}
     >
