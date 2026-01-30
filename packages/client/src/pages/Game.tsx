@@ -148,6 +148,8 @@ export default function Game() {
   const [scoreDeltas, setScoreDeltas] = useState<number[] | null>(null);
   const [bidAnnouncements, setBidAnnouncements] = useState<Map<number, number>>(new Map());
   const [specialCardAnnouncement, setSpecialCardAnnouncement] = useState<{ type: 'whoopie' | 'scramble'; playerName: string } | null>(null);
+  const [whoopieReveal, setWhoopieReveal] = useState<{ rank: string; suit: Suit } | null>(null);
+  const prevWhoopieRankRef = useRef<string | null | undefined>(undefined);
   const prevPhaseRef = useRef<string | null>(null);
   const prevTrickLengthRef = useRef<number>(0);
   const cutShownRef = useRef<boolean>(false);
@@ -174,8 +176,27 @@ export default function Game() {
       e.returnValue = '';
     };
 
+    // Desktop: beforeunload dialog
     window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+
+    // Mobile: intercept back button via History API
+    window.history.pushState({ gameProtect: true }, '');
+    const handlePopState = (e: PopStateEvent) => {
+      if (e.state?.gameProtect === undefined) {
+        // User pressed back — push state again and confirm
+        window.history.pushState({ gameProtect: true }, '');
+        if (confirm('Leave the game? Your progress may be lost.')) {
+          window.history.back();
+          window.history.back();
+        }
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('popstate', handlePopState);
+    };
   }, [view, view?.phase]);
 
   // Handle being kicked - show message and redirect
@@ -397,6 +418,26 @@ export default function Game() {
       }, 4000);
     }
   }, [events, view?.players]);
+
+  // Detect whoopie rank reveal (Joker defining card → first suited card led sets rank + trump)
+  useEffect(() => {
+    const currentRank = view?.stanza?.whoopieRank ?? null;
+    const currentSuit = view?.stanza?.currentTrumpSuit as Suit | null;
+    const definingCard = view?.stanza?.whoopieDefiningCard;
+
+    // Detect transition: whoopieRank was null → now has a value, and defining card is a Joker
+    if (
+      prevWhoopieRankRef.current === null &&
+      currentRank !== null &&
+      currentSuit !== null &&
+      definingCard && isJoker(definingCard)
+    ) {
+      setWhoopieReveal({ rank: currentRank, suit: currentSuit });
+      setTimeout(() => setWhoopieReveal(null), 4000);
+    }
+
+    prevWhoopieRankRef.current = currentRank;
+  }, [view?.stanza?.whoopieRank, view?.stanza?.currentTrumpSuit, view?.stanza?.whoopieDefiningCard]);
 
   // Handle player left notifications
   useEffect(() => {
@@ -1948,6 +1989,70 @@ export default function Game() {
         )}
       </AnimatePresence>
 
+      {/* Whoopie Rank Reveal (when Joker defining card → first card sets rank) */}
+      <AnimatePresence>
+        {whoopieReveal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 pointer-events-none"
+          >
+            <motion.div
+              initial={{ scale: 0, rotate: -180 }}
+              animate={{ scale: 1, rotate: 0 }}
+              exit={{ scale: 0, opacity: 0 }}
+              transition={{ type: 'spring', damping: 12, stiffness: 100 }}
+              className="flex flex-col items-center"
+            >
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+                className="text-yellow-300 text-lg font-bold mb-4 drop-shadow-lg"
+              >
+                Whoopie Card Revealed!
+              </motion.p>
+              <motion.div
+                animate={{
+                  boxShadow: [
+                    '0 0 20px rgba(234, 179, 8, 0.4)',
+                    '0 0 60px rgba(234, 179, 8, 0.8)',
+                    '0 0 20px rgba(234, 179, 8, 0.4)',
+                  ],
+                }}
+                transition={{ duration: 1.5, repeat: Infinity }}
+                className="bg-white rounded-xl w-24 h-36 md:w-32 md:h-48 flex flex-col items-center justify-center relative"
+              >
+                <span className={`text-base md:text-xl font-bold absolute top-2 left-3 ${
+                  whoopieReveal.suit === 'hearts' || whoopieReveal.suit === 'diamonds' ? 'text-red-600' : 'text-gray-800'
+                }`}>
+                  {whoopieReveal.rank}
+                </span>
+                <span className={`text-4xl md:text-6xl ${
+                  whoopieReveal.suit === 'hearts' || whoopieReveal.suit === 'diamonds' ? 'text-red-600' : 'text-gray-800'
+                }`}>
+                  {suitSymbols[whoopieReveal.suit]}
+                </span>
+                <span className={`text-base md:text-xl font-bold absolute bottom-2 right-3 rotate-180 ${
+                  whoopieReveal.suit === 'hearts' || whoopieReveal.suit === 'diamonds' ? 'text-red-600' : 'text-gray-800'
+                }`}>
+                  {whoopieReveal.rank}
+                </span>
+              </motion.div>
+              <motion.p
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.5 }}
+                className="text-white text-sm mt-4 drop-shadow-lg"
+              >
+                All {whoopieReveal.rank}s are Whoopie &bull; {suitSymbols[whoopieReveal.suit]} is trump
+              </motion.p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Joker Whoopie Help Modal */}
       <AnimatePresence>
         {showJokerWhoopieHelp && (
@@ -1968,16 +2073,16 @@ export default function Game() {
               <h2 className="text-xl font-bold text-purple-400 mb-3">Joker as Whoopie Card!</h2>
               <div className="text-gray-300 text-sm space-y-3">
                 <p>
-                  When a <span className="text-purple-400 font-medium">Joker</span> is flipped as the Whoopie defining card, something special happens:
+                  When a <span className="text-purple-400 font-medium">Joker</span> is flipped as the Whoopie defining card:
                 </p>
                 <p className="text-yellow-300 font-medium">
-                  ALL cards become Whoopie cards this stanza!
+                  The first card led sets both the Whoopie rank AND trump suit!
                 </p>
                 <p>
-                  This means you must call <span className="text-yellow-400">"Whoopie!"</span> every time you play a card, or lose a point.
+                  Until that first card is played, there is no Whoopie rank and no trump suit. Once it&apos;s led, its rank becomes the Whoopie rank and its suit becomes trump for the rest of the stanza.
                 </p>
                 <p>
-                  Trump will be set by the <span className="text-white">first suited card played</span> - that card's suit becomes trump.
+                  If the first card led is also a <span className="text-purple-400">Joker</span>, that player auto-wins the trick and their next led card sets Whoopie/trump.
                 </p>
               </div>
               <button
