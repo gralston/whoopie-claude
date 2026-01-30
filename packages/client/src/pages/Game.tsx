@@ -171,6 +171,7 @@ export default function Game() {
 
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
+      e.returnValue = '';
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);

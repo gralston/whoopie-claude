@@ -47,7 +47,7 @@ export function HelpMenu({ onShowRules, onShowFeedback, onLeave, onPause, varian
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -5 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 mt-2 w-40 bg-gray-800 rounded-lg shadow-lg border border-gray-700 overflow-hidden z-50"
+            className="absolute left-0 mt-2 w-40 bg-gray-800 rounded-lg shadow-lg border border-gray-700 overflow-hidden z-50"
           >
             {onLeave && (
               <button

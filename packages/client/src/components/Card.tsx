@@ -175,10 +175,11 @@ export function MiniCard({ card, highlight = false }: { card: CardType; highligh
         highlight ? 'ring-2 ring-yellow-400' : ''
       } card-shadow`}
     >
+      <SimpleCard card={card} className="w-8 h-12 sm:hidden" />
       <img
         src={svgPath}
         alt={altText}
-        className="w-full h-full object-cover"
+        className="w-full h-full object-cover hidden sm:block"
         draggable={false}
       />
     </div>
